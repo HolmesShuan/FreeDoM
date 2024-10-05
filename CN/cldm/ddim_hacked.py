@@ -32,6 +32,9 @@ from skimage import io
 
 
 def get_points_and_rec(img, detector, shape_predictor, size_threshold=999):
+    """
+        这个函数的作用是检测人脸并获取人脸的五个关键点，同时返回人脸的矩形框位置。
+    """
     dets = detector(img, 1)
     if len(dets) == 0:
         return None, None
@@ -58,6 +61,10 @@ def get_points_and_rec(img, detector, shape_predictor, size_threshold=999):
 
 
 def align_and_save(img, src_points, template_path, template_scale=1, img_size=256):
+    """
+        这个函数的作用是根据模板对图片中的人脸进行对齐，并返回变换矩阵 M。
+        使用 scikit-image 的 SimilarityTransform 计算源点和模板点之间的相似变换矩阵 M。
+    """
     out_size = (img_size, img_size)
     reference = np.load(template_path) / template_scale * (img_size / 256)
 
@@ -69,6 +76,9 @@ def align_and_save(img, src_points, template_path, template_scale=1, img_size=25
 
 
 def align_and_save_dir(src_path, template_path='./pretrain_models/FFHQ_template.npy', template_scale=4, use_cnn_detector=True, img_size=256):
+    """
+        这个函数的作用是加载图片并调用 get_points_and_rec 函数进行人脸检测和对齐操作。
+    """
     if use_cnn_detector:
         detector = dlib.cnn_face_detection_model_v1('./pretrain_models/mmod_human_face_detector.dat')
     else:
@@ -84,6 +94,9 @@ def align_and_save_dir(src_path, template_path='./pretrain_models/FFHQ_template.
 
 
 def get_tensor_M(src_path):
+    """
+        这个函数的作用是将人脸对齐后的变换矩阵 M 转换为 PyTorch 张量格式，方便后续在神经网络中使用。
+    """
     M, s = align_and_save_dir(src_path)
     h, w = s[0], s[1]
     a = torch.Tensor(
@@ -126,11 +139,11 @@ class DDIMSampler(object):
         self.no_freedom = no_freedom
         if self.add_condition_mode == "face_id":
             self.idloss = IDLoss(ref_path=add_ref_path).cuda()
-            M = get_tensor_M(ref_path)
-            self.grid = F.affine_grid(M, (1, 3, 256, 256), align_corners=True).cuda()
+            M = get_tensor_M(ref_path)  # 获取对齐矩阵 M，描述如何将人脸图片变换为标准对齐的形状。
+            self.grid = F.affine_grid(M, (1, 3, 256, 256), align_corners=True).cuda()  # 基于变换矩阵 M 生成用于几何变换的网格
         elif self.add_condition_mode == "style":
             image_encoder = CLIPEncoder(need_ref=True, ref_path=add_ref_path).cuda()
-            self.image_encoder = image_encoder.requires_grad_(True)
+            self.image_encoder = image_encoder.requires_grad_(False)
 
     def register_buffer(self, name, attr):
         if type(attr) == torch.Tensor:
@@ -140,7 +153,7 @@ class DDIMSampler(object):
 
     def make_schedule(self, ddim_num_steps, ddim_discretize="uniform", ddim_eta=0., verbose=True):
         self.ddim_timesteps = make_ddim_timesteps(ddim_discr_method=ddim_discretize, num_ddim_timesteps=ddim_num_steps,
-                                                  num_ddpm_timesteps=self.ddpm_num_timesteps,verbose=verbose)
+                                                  num_ddpm_timesteps=self.ddpm_num_timesteps, verbose=verbose)
         alphas_cumprod = self.model.alphas_cumprod
         assert alphas_cumprod.shape[0] == self.ddpm_num_timesteps, 'alphas have to be defined for each timestep'
         to_torch = lambda x: x.clone().detach().to(torch.float32).to(self.model.device)
@@ -195,6 +208,7 @@ class DDIMSampler(object):
                ucg_schedule=None,
                **kwargs
                ):
+        print('[Debug] CLDM/DDIM_HACKED')
         if conditioning is not None:
             if isinstance(conditioning, dict):
                 ctmp = conditioning[list(conditioning.keys())[0]]
@@ -254,10 +268,10 @@ class DDIMSampler(object):
         elif timesteps is not None and not ddim_use_original_steps:
             subset_end = int(min(timesteps / self.ddim_timesteps.shape[0], 1) * self.ddim_timesteps.shape[0]) - 1
             timesteps = self.ddim_timesteps[:subset_end]
-        time_range = reversed(range(0,timesteps)) if ddim_use_original_steps else np.flip(timesteps)
-        time_range_reverse = time_range[::-1]
+        time_range = reversed(range(0, timesteps)) if ddim_use_original_steps else np.flip(timesteps)
+        # time_range_reverse = time_range[::-1]
         total_steps = timesteps if ddim_use_original_steps else timesteps.shape[0]
-        print(f"Running DDIM Sampling with {total_steps} timesteps")
+        print(f"Running DDIM Sampling with {total_steps} timesteps.")
         iterator = tqdm(time_range, desc='DDIM Sampler', total=total_steps)
 
         if x_T is None:
@@ -392,7 +406,6 @@ class DDIMSampler(object):
             start = end = -10
 
         for j in range(repeat):
-
             if unconditional_conditioning is None or unconditional_guidance_scale == 1.:
                 model_output = self.model.apply_model(x, t, c)
             else:

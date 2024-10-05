@@ -7,7 +7,7 @@ from tqdm import tqdm
 from ldm.modules.diffusionmodules.util import make_ddim_sampling_parameters, make_ddim_timesteps, noise_like, extract_into_tensor
 
 from .clip.base_clip import CLIPEncoder
-image_encoder = CLIPEncoder(need_ref=True, ref_path="/workspace/stable-diffusion/ldm/models/diffusion/clip/bw.jpg").cuda()
+# image_encoder = CLIPEncoder(need_ref=True, ref_path="/homesda/yydeng/xyhe/FreeDoM/CN/ldm/models/diffusion/clip/bw.jpg").cuda()
 
 
 class DDIMSampler(object):
@@ -80,6 +80,7 @@ class DDIMSampler(object):
                ucg_schedule=None,
                **kwargs
                ):
+        print('[Debug] LDM/Models/Diffusion/DDIM')
         if conditioning is not None:
             if isinstance(conditioning, dict):
                 ctmp = conditioning[list(conditioning.keys())[0]]

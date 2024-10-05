@@ -27,15 +27,14 @@ args = parser.parse_args()
 
 apply_openpose = OpenposeDetector()
 
-model = create_model('./models/cldm_v15.yaml').cpu()
+model = create_model('./models/cldm_v15.yaml').cpu()  # ControlNet SDv1.5
 model.load_state_dict(load_state_dict('./models/control_sd15_openpose.pth', location='cuda'))
 model = model.cuda()
 ddim_sampler = DDIMSampler(model, add_condition_mode="face_id", ref_path=args.pose_ref, add_ref_path=args.id_ref, no_freedom=args.no_freedom)
 
 
 def process(input_image, prompt, a_prompt, n_prompt, num_samples, image_resolution, detect_resolution, ddim_steps, guess_mode, strength, scale, seed, eta):
-    # with torch.no_grad():
-    input_image = HWC3(input_image)
+    input_image = HWC3(input_image) # 归一化图片
     detected_map, _ = apply_openpose(resize_image(input_image, detect_resolution))
     detected_map = HWC3(detected_map)
     img = resize_image(input_image, image_resolution)
