@@ -18,6 +18,10 @@ import argparse
 parser = argparse.ArgumentParser()
 parser.add_argument("--seed", type=int, default=1234, help="Random seed")
 parser.add_argument("--timesteps", type=int, default=100)
+parser.add_argument("--start_steps", type=int, default=100)
+parser.add_argument("--end_steps", type=int, default=0)
+parser.add_argument("--image_size", type=int, default=224)
+parser.add_argument("--lr", type=float, default=0.5)
 parser.add_argument("--prompt", type=str, default="young man, realistic photo")
 parser.add_argument("--scribble_ref", type=str, default="./test_imgs/s5.png")
 parser.add_argument("--style_ref", type=str, default="./test_imgs/xingkong.jpg")
@@ -28,7 +32,7 @@ args = parser.parse_args()
 model = create_model('./models/cldm_v15.yaml').cpu()
 model.load_state_dict(load_state_dict('./models/control_sd15_scribble.pth', location='cuda'))
 model = model.cuda()
-ddim_sampler = DDIMSampler(model, add_condition_mode="style", add_ref_path=args.style_ref, no_freedom=args.no_freedom)
+ddim_sampler = DDIMSampler(model, add_condition_mode="style", add_ref_path=args.style_ref, no_freedom=args.no_freedom, image_size=args.image_size)
 
 
 def process(input_image, prompt, a_prompt, n_prompt, num_samples, image_resolution, ddim_steps, guess_mode, strength, scale, seed, eta):
@@ -61,7 +65,10 @@ def process(input_image, prompt, a_prompt, n_prompt, num_samples, image_resoluti
     samples, intermediates = ddim_sampler.sample(ddim_steps, num_samples,
                                                     shape, cond, verbose=False, eta=eta,
                                                     unconditional_guidance_scale=scale,
-                                                    unconditional_conditioning=un_cond)
+                                                    unconditional_conditioning=un_cond,
+                                                    start_step=args.start_steps,
+                                                    end_step=args.end_steps,
+                                                    lr=args.lr)
 
     if config.save_memory:
         model.low_vram_shift(is_diffusing=False)
@@ -107,5 +114,5 @@ res = process(
 count = 1
 for img in res:
     img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-    cv2.imwrite("./results/scribble-style-{}.png".format(count), img)
+    cv2.imwrite("./results/scribble-style-{}-{}-{}-{}.png".format(args.start_steps, args.end_steps, args.lr, args.image_size), img)
     count += 1

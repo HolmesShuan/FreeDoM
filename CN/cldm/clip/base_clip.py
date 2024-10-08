@@ -1,19 +1,21 @@
 import torch
 import torch.nn as nn
 from .clip import clip
-# from clip import clip
 import torchvision
-# from mmedit.models.registry import COMPONENTS
+from torchvision import transforms
+import torch.nn.functional as F
 
 model_name = "ViT-B/16"
 # model_name = "ViT-B/32"
 # ref_image_feature = torch.load("/userhome/yjw/mmediting/fengge/02583.pth")
 
+from .utils import load_image, save_image, gram_matrix, normalize_batch
+from .vgg import Vgg16
+
 
 def load_clip_to_cpu():
     url = clip._MODELS[model_name]
     model_path = clip._download(url)
-#     print("------------------>", model_path)
 
     try:
         # loading JIT archive
@@ -285,6 +287,44 @@ class CLIPEncoder(nn.Module):
             return self.encode_image_with_text(image, text)
         else:
             return self.encode_image_with_features(image)
+        
+
+class VGG16Encoder(nn.Module):
+    def __init__(self, need_ref=False, ref_path=None, image_size=224):
+        super().__init__()
+        self.clip_model = Vgg16(requires_grad=False).cuda()
+        self.clip_model.requires_grad = False
+        self.image_size = image_size
+
+        if need_ref:
+            style_transform = transforms.Compose([
+                transforms.ToTensor(),
+                transforms.Lambda(lambda x: x.mul(255))
+            ])
+            self.preprocess = torchvision.transforms.Normalize(
+                (0.48145466*2-1, 0.4578275*2-1, 0.40821073*2-1),
+                (0.26862954*2, 0.26130258*2, 0.27577711*2)
+            )
+            ref_path = "/userhome/yjw/ddgm_exp/functions/clip/xiangrikui.jpg" if not ref_path else ref_path
+            style = load_image(ref_path, size=self.image_size)
+            style = style_transform(style)
+            style = style.repeat(1, 1, 1, 1).cuda()
+            self.ref = style
+            features_style = self.clip_model(normalize_batch(style))
+            self.gram_style = [gram_matrix(y) for y in features_style]
+    
+    def get_gram_matrix_style_loss(self, im1):
+        im1 = torch.nn.functional.interpolate(im1, size=(self.image_size, self.image_size), mode='bicubic')
+        # im1 = torch.nn.functional.interpolate(im1, size=(512, 512), mode='bicubic')
+        x = self.preprocess(im1)
+        features_x = self.clip_model(x)
+        
+        style_loss = 0.
+        for ft_y, gm_s in zip(features_x, self.gram_style):
+            gm_y = gram_matrix(ft_y)
+            style_loss += torch.linalg.norm(gm_y - gm_s[:1, :, :])
+        
+        return style_loss
 
 
 if __name__ == "__main__":

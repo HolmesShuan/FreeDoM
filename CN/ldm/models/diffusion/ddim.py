@@ -351,7 +351,7 @@ class DDIMSampler(object):
 
             if start > index >= end:
                 D_x0_t = self.model.decode_first_stage(pred_x0)
-                residual = image_encoder.get_gram_matrix_residual(D_x0_t)
+                residual = self.image_encoder.get_gram_matrix_residual(D_x0_t)
                 norm = torch.linalg.norm(residual)
                 norm_grad = torch.autograd.grad(outputs=norm, inputs=x)[0]
                 rho = (correction * correction).mean().sqrt().item() * unconditional_guidance_scale / (norm_grad * norm_grad).mean().sqrt().item() * 0.2

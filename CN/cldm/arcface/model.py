@@ -8,7 +8,7 @@ class IDLoss(nn.Module):
     def __init__(self, ref_path=None):
         super(IDLoss, self).__init__()
 #         print('Loading ResNet ArcFace for ID Loss')
-        self.facenet = Backbone(input_size=112, num_layers=50, drop_ratio=0.6, mode='ir_se')
+        self.facenet = Backbone(input_size=112, num_layers=50, drop_ratio=0.4, mode='ir_se')
         self.facenet.load_state_dict(torch.load("/homesda/yydeng/xyhe/FreeDoM/CN/cldm/arcface/model_ir_se50.pth"))
         self.pool = torch.nn.AdaptiveAvgPool2d((256, 256))
         self.face_pool = torch.nn.AdaptiveAvgPool2d((112, 112))

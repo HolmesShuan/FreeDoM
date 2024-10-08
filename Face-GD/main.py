@@ -69,9 +69,6 @@ def parse_args_and_config():
         "--class_num", type=int, default=10
     )
 
-
-
-
     parser.add_argument(
         "-s",
         "--sample_strategy",

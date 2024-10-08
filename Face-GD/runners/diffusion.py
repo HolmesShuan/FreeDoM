@@ -11,7 +11,7 @@ import torch.utils.data as data
 from models.diffusion import Model
 # from datasets import get_dataset, data_transform, inverse_data_transform
 from functions.ckpt_util import get_ckpt_path, download
-from functions.denoising import clip_ddim_diffusion, parse_ddim_diffusion, sketch_ddim_diffusion, landmark_ddim_diffusion, arcface_ddim_diffusion
+from functions.denoising import clip_ddim_diffusion, parse_ddim_diffusion, sketch_ddim_diffusion, landmark_ddim_diffusion, arcface_ddim_diffusion, clip_parse_ddim_diffusion, clip_parse_ddim_diffusion_magic
 import torchvision.utils as tvu
 
 from guided_diffusion.unet import UNetModel
@@ -114,7 +114,7 @@ class Diffusion(object):
                 "num_diffusion_timesteps": 1000,
             }
             model_f = Model(celeba_dict)
-            ckpt = os.path.join(self.args.exp, "logs/celeba/celeba_hq.ckpt")
+            ckpt = os.path.join(self.args.exp, "/homesda/yydeng/xyhe/FreeDoM/Face-GD/exps/logs/celeba/celeba_hq.ckpt")
             states = torch.load(ckpt, map_location=self.device)
             if type(states) == list:
                 states_old = states[0]
@@ -186,7 +186,13 @@ class Diffusion(object):
                 x, _ = self.sample_image_alogrithm_land_ddim(x, model, last=False, cls_fn=cls_fn, rho_scale=args.rho_scale, stop=args.stop, ref_path=args.ref_path)
             elif mode == "arc_ddim":
                 x, _ = self.sample_image_alogrithm_arcface_ddim(x, model, last=False, cls_fn=cls_fn, rho_scale=args.rho_scale, stop=args.stop, ref_path=args.ref_path)
-
+            elif mode == "arc_land_ddim":
+                x, _ = self.sample_image_alogrithm_arcface_land_ddim(x, model, last=False, cls_fn=cls_fn, rho_scale=args.rho_scale, stop=args.stop, ref_path=args.ref_path)
+            elif mode == "clip_parse_ddim":
+                x, _ = self.sample_image_alogrithm_clip_parse_ddim(x, model, last=False, cls_fn=cls_fn, rho_scale=args.rho_scale, prompt=args.prompt, stop=args.stop, domain=args.model_type, ref_path=args.ref_path)
+            elif mode == 'clip_parse_ddim_magic':
+                x, _ = self.sample_image_alogrithm_clip_parse_ddim_magic(x, model, last=False, cls_fn=cls_fn, rho_scale=args.rho_scale, prompt=args.prompt, stop=args.stop, domain=args.model_type, ref_path=args.ref_path)
+            
             x = [((y + 1.0) / 2.0).clamp(0.0, 1.0) for y in x]
 
             # for i in [-1]:  # range(len(x)):
@@ -215,6 +221,30 @@ class Diffusion(object):
         x.requires_grad = True
         
         x = parse_ddim_diffusion(x, seq, model, self.betas, cls_fn=cls_fn, rho_scale=rho_scale, stop=stop, ref_path=ref_path)
+
+        if last:
+            x = x[0][-1]
+        return x
+    
+    def sample_image_alogrithm_clip_parse_ddim(self, x, model, last=True, cls_fn=None, rho_scale=1.0, prompt=None, stop=100, domain="face", ref_path=None):
+        skip = self.num_timesteps // self.args.timesteps
+        seq = range(0, self.num_timesteps, skip)
+        
+        x.requires_grad = True
+        
+        x = clip_parse_ddim_diffusion(x, seq, model, self.betas, cls_fn=cls_fn, rho_scale=rho_scale, prompt=prompt, stop=stop, domain=domain, ref_path=ref_path)
+
+        if last:
+            x = x[0][-1]
+        return x
+    
+    def sample_image_alogrithm_clip_parse_ddim_magic(self, x, model, last=True, cls_fn=None, rho_scale=1.0, prompt=None, stop=100, domain="face", ref_path=None):
+        skip = self.num_timesteps // self.args.timesteps
+        seq = range(0, self.num_timesteps, skip)
+        
+        x.requires_grad = True
+        
+        x = clip_parse_ddim_diffusion_magic(x, seq, model, self.betas, cls_fn=cls_fn, rho_scale=rho_scale, prompt=prompt, stop=stop, domain=domain, ref_path=ref_path)
 
         if last:
             x = x[0][-1]

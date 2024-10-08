@@ -48,6 +48,7 @@ def process(input_image, prompt, a_prompt, n_prompt, num_samples, image_resoluti
 
     if seed == -1:
         seed = random.randint(0, 65535)
+    print('[INFO] Seed : ', seed)
     seed_everything(seed)
 
     if config.save_memory:
@@ -61,7 +62,7 @@ def process(input_image, prompt, a_prompt, n_prompt, num_samples, image_resoluti
         model.low_vram_shift(is_diffusing=True)
 
     model.control_scales = [strength * (0.825 ** float(12 - i)) for i in range(13)] if guess_mode else ([strength] * 13)  # Magic number. IDK why. Perhaps because 0.825**12<0.01 but 0.826**12>0.01
-    samples, intermediates = ddim_sampler.sample(ddim_steps, num_samples,
+    samples, _ = ddim_sampler.sample(ddim_steps, num_samples,
                                                     shape, cond, verbose=False, eta=eta,
                                                     unconditional_guidance_scale=scale,
                                                     unconditional_conditioning=un_cond)
@@ -88,7 +89,7 @@ guess_mode = False
 strength = 1.0
 scale = 9.0
 seed = args.seed
-eta = 0.0
+eta = 0.
 
 res = process(
     input_image=input_image, 

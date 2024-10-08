@@ -9,6 +9,7 @@
 **/*.bin
 **/openai/*
 **/*.gz
+CN/results/*
 CN/__pycache__/config.cpython-38.pyc
 CN/__pycache__/share.cpython-38.pyc
 CN/annotator/__pycache__/util.cpython-38.pyc
