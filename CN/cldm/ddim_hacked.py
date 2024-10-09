@@ -420,7 +420,7 @@ class DDIMSampler(object):
         # if 70 > index >= 40:
         #     repeat = 3
         # else:
-        repeat = 5
+        repeat = 3
         
         start = start_step # int(float(total_steps) * start_ratio) # 100
         end = end_step # int(float(total_steps) * end_ratio) # 100
@@ -475,6 +475,8 @@ class DDIMSampler(object):
             c3 = (1 - a_prev) * (1 - a_t / a_prev) / (1 - a_t)
             c3 = (c3.log() * 0.5).exp()
             x_prev = c1 * pred_x0 + c2 * x + c3 * torch.randn_like(pred_x0)
+            
+            # x_prev = beta_t.sqrt() * x_prev + (1 - beta_t).sqrt() * noise_like(x.shape, device, repeat_noise)
             
             # calculate x0|x,c1
             if self.model.parameterization != "v":

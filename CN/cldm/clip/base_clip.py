@@ -307,6 +307,7 @@ class VGG16Encoder(nn.Module):
             )
             ref_path = "/userhome/yjw/ddgm_exp/functions/clip/xiangrikui.jpg" if not ref_path else ref_path
             style = load_image(ref_path, size=self.image_size)
+            # style = load_image(ref_path, None)
             style = style_transform(style)
             style = style.repeat(1, 1, 1, 1).cuda()
             self.ref = style
@@ -315,7 +316,7 @@ class VGG16Encoder(nn.Module):
     
     def get_gram_matrix_style_loss(self, im1):
         im1 = torch.nn.functional.interpolate(im1, size=(self.image_size, self.image_size), mode='bicubic')
-        # im1 = torch.nn.functional.interpolate(im1, size=(512, 512), mode='bicubic')
+        # im1 = torch.nn.functional.interpolate(im1, size=(224, 224), mode='bicubic')
         x = self.preprocess(im1)
         features_x = self.clip_model(x)
         
