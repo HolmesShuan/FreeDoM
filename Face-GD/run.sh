@@ -1,6 +1,6 @@
 # face
 
-CUDA_VISIBLE_DEVICES=1 python main.py -i clip_seg_face -s clip_parse_ddim --doc celeba_hq --timesteps 100 --rho_scale 0.2 --seed 12345 --stop 200 --model_type "face" --prompt "blonde beauty" --ref_path ./images/294.jpg --batch_size 1 > clip_seg.txt
+CUDA_VISIBLE_DEVICES=1 python main.py -i clip_seg_face -s clip_parse_ddim --doc celeba_hq --timesteps 100 --rho_scale 0.1 --seed 12345 --stop 200 --model_type "face" --prompt "blonde beauty" --ref_path ./images/294.jpg --batch_size 1 > clip_seg.txt
 CUDA_VISIBLE_DEVICES=1 python main.py -i clip_seg_magic_face -s clip_parse_ddim_magic --doc celeba_hq --timesteps 100 --rho_scale 0.1 --seed 12345 --stop 200 --model_type "face" --prompt "blonde beauty" --ref_path ./images/294.jpg --batch_size 1 > clip_seg_magic.txt
 
 # CUDA_VISIBLE_DEVICES=1 python main.py -i clip_face -s clip_ddim --doc celeba_hq --timesteps 100 --seed 12345 --model_type "face" --prompt "blonde beauty" --batch_size 1

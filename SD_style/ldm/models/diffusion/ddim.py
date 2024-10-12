@@ -151,7 +151,7 @@ class DDIMSampler(object):
         total_steps = timesteps if ddim_use_original_steps else timesteps.shape[0]
         print(f"Running DDIM Sampling with {total_steps} timesteps")
 
-        iterator = tqdm(time_range, desc='DDIM Sampler', total=total_steps)
+        iterator = tqdm(time_range, desc='DDIM Sampler', total=total_steps, disable=True)
 
         count1 = 0
 
@@ -165,7 +165,8 @@ class DDIMSampler(object):
                 img_orig = self.model.q_sample(x0, ts)  # TODO: deterministic forward pass?
                 img = img_orig * mask + (1. - mask) * img
 
-            outs = self.p_sample_ddim_conditional(img, cond, ts, index=index, use_original_steps=ddim_use_original_steps,
+            # outs = self.p_sample_ddim_conditional(img, cond, ts, index=index, use_original_steps=ddim_use_original_steps,
+            outs = self.p_sample_ddim_magic_conditional(img, cond, ts, index=index, use_original_steps=ddim_use_original_steps,
                                     quantize_denoised=quantize_denoised, temperature=temperature,
                                     noise_dropout=noise_dropout, score_corrector=score_corrector,
                                     corrector_kwargs=corrector_kwargs,
@@ -185,7 +186,7 @@ class DDIMSampler(object):
                 count2 += 1
                 x_sample = 255. * rearrange(x_sample.cpu().numpy(), 'c h w -> h w c')
                 img_save = Image.fromarray(x_sample.astype(np.uint8))
-                img_save.save(os.path.join("/workspace/stable-diffusion/intermediates", "{}_{}.png".format(count1, count2)))
+                img_save.save(os.path.join("/homesda/yydeng/xyhe/stable-diffusion/intermediates", "{}_{}.png".format(count1, count2)))
 
             if callback: callback(i)
             if img_callback: img_callback(pred_x0, i)
@@ -288,15 +289,16 @@ class DDIMSampler(object):
         # hyperparameters: 
         # "repeat" is the number for time-travel strategy; 
         # "start" and "end" are the end points for the range of guidance;
-        if index >= 70:
+        start = 70
+        # end = 0
+        # start = 70
+        end = 30
+        if index >= start:
             repeat = 1
-        elif 70 > index >= 40:
+        elif start > index >= end + 10:
             repeat = 3
         else:
             repeat = 1 
-        start = 70
-        end = 30
-
 
         for j in range(repeat):
 
@@ -364,7 +366,6 @@ class DDIMSampler(object):
                 D_x0_t = self.model.decode_first_stage(pred_x0_given_c1)
                 residual = self.image_encoder.get_gram_matrix_residual(D_x0_t)
                 style_loss = torch.linalg.norm(residual)
-                style_loss_grad = torch.autograd.grad(outputs=style_loss, inputs=x)[0]
                 print('[Debug] Style Loss : ', style_loss.cpu().item())
                 style_loss_grad = torch.autograd.grad(outputs=style_loss, inputs=x_prev_given_c1)[0]
                 correction_1d = correction.view(-1)
@@ -372,7 +373,7 @@ class DDIMSampler(object):
                 style_loss_grad_1d = style_loss_grad.view(-1)
                 style_loss_grad_1d_norm = torch.norm(style_loss_grad_1d, p=2)
                 rho = correction_1d_l2_norm.item() * unconditional_guidance_scale
-                rho = rho / style_loss_grad_1d_norm.item() * 0.2
+                rho = rho / style_loss_grad_1d_norm.item() * 0.15
                 # print('[Debug] rho : ', rho)
                 
             if start > index >= end:
