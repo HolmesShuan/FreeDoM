@@ -420,7 +420,7 @@ class DDIMSampler(object):
         # if 70 > index >= 40:
         #     repeat = 3
         # else:
-        repeat = 5
+        repeat = 3
         
         start = start_step # int(float(total_steps) * start_ratio) # 100
         end = end_step # int(float(total_steps) * end_ratio) # 100
@@ -517,7 +517,7 @@ class DDIMSampler(object):
                     #     x_prev = x_prev - style_loss_magic_grad.detach()
                 x_prev = x_prev - style_loss_magic_grad.detach()
             
-            x = beta_t.sqrt() * x_prev + (1 - beta_t).sqrt() * noise_like(x.shape, device, repeat_noise)
+            # x = beta_t.sqrt() * x_prev + (1 - beta_t).sqrt() * noise_like(x.shape, device, repeat_noise)
 
         return x_prev.detach(), pred_x0.detach()
     

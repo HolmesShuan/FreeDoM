@@ -30,7 +30,7 @@ args = parser.parse_args()
 
 
 model = create_model('./models/cldm_v15.yaml').cpu()
-model.load_state_dict(load_state_dict('./models/control_sd15_scribble.pth', location='cuda'))
+model.load_state_dict(load_state_dict('/ssd/model/stable_diffusion/control_sd15_scribble.pth', location='cuda'))
 model = model.cuda()
 ddim_sampler = DDIMSampler(model, add_condition_mode="style", add_ref_path=args.style_ref, no_freedom=args.no_freedom, image_size=args.image_size)
 

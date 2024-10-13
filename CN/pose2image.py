@@ -28,7 +28,7 @@ args = parser.parse_args()
 apply_openpose = OpenposeDetector()
 
 model = create_model('./models/cldm_v15.yaml').cpu()  # ControlNet SDv1.5
-model.load_state_dict(load_state_dict('./models/control_sd15_openpose.pth', location='cuda'))
+model.load_state_dict(load_state_dict('/ssd/model/stable_diffusion/control_sd15_openpose.pth', location='cuda'))
 model = model.cuda()
 ddim_sampler = DDIMSampler(model, add_condition_mode="face_id", ref_path=args.pose_ref, add_ref_path=args.id_ref, no_freedom=args.no_freedom)
 

@@ -277,7 +277,7 @@ class FaceParseTool(nn.Module):
         self.n_classes = n_classes
         self.net = BiSeNet(self.n_classes)
         self.net = self.net.cuda()
-        self.net.load_state_dict(torch.load("/homesda/yydeng/xyhe/FreeDoM/Face-GD/exp/image_samples/face_parsing/79999_iter.pth"))
+        self.net.load_state_dict(torch.load("/home/hexiangyu/FreeDoM/Face-GD/exp/image_samples/face_parsing/79999_iter.pth"))
         self.net.eval()
         
         self.to_tensor = torchvision.transforms.Compose([

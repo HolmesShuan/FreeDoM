@@ -114,7 +114,7 @@ class Diffusion(object):
                 "num_diffusion_timesteps": 1000,
             }
             model_f = Model(celeba_dict)
-            ckpt = os.path.join(self.args.exp, "/homesda/yydeng/xyhe/FreeDoM/Face-GD/exps/logs/celeba/celeba_hq.ckpt")
+            ckpt = os.path.join(self.args.exp, "/ssd/model/stable_diffusion/celeba_hq.ckpt")
             states = torch.load(ckpt, map_location=self.device)
             if type(states) == list:
                 states_old = states[0]
@@ -152,7 +152,7 @@ class Diffusion(object):
                 }
             model_i = create_model(**imagenet_dict)
             model_i.convert_to_fp16()
-            ckpt = os.path.join(self.args.exp, "logs/imagenet/256x256_diffusion_uncond.pt")
+            ckpt = os.path.join(self.args.exp, "/ssd/model/stable_diffusion/256x256_diffusion_uncond.pt")
             model_i.load_state_dict(torch.load(ckpt, map_location=self.device))
             model_i.to(self.device)
             model_i.eval()
