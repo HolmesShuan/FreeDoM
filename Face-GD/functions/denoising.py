@@ -183,8 +183,8 @@ def clip_parse_ddim_diffusion(x, seq, model, b, cls_fn=None, rho_scale=1.0, prom
             # text guided gradient
             residual = clip_encoder.get_residual(x0_t, prompt)
             norm = torch.linalg.norm(residual)
-            if not i <= stop:
-                print('[INFO] text loss : ', norm.cpu().item())
+            # if not i <= stop:
+            #     print('[INFO] text loss : ', norm.cpu().item())
             norm_grad = torch.autograd.grad(outputs=norm, inputs=xt)[0]
 
             # parse gradient
@@ -192,7 +192,7 @@ def clip_parse_ddim_diffusion(x, seq, model, b, cls_fn=None, rho_scale=1.0, prom
                 x0_t_parse = (xt_parse - et_parse * (1 - at).sqrt()) / at.sqrt()
                 parse_residual = parser.get_residual(x0_t_parse)
                 parse_norm = torch.linalg.norm(parse_residual)
-                print('[INFO] seg loss : ', parse_norm.cpu().item())
+                # print('[INFO] seg loss : ', parse_norm.cpu().item())
                 parse_norm_grad = torch.autograd.grad(outputs=parse_norm, inputs=xt_parse)[0]
 
             c1 = at_next.sqrt() * (1 - at / at_next) / (1 - at)
@@ -327,8 +327,9 @@ def clip_parse_ddim_diffusion_magic(x, seq, model, b, cls_fn=None, rho_scale=1.0
             if not i <= stop:
                 parse_rho = at.sqrt() * rho_scale
                 xt_next -= parse_rho * parse_loss_magic_grad.detach()
-            
-            x0_t = x0_t_parse.detach()
+                x0_t = x0_t_parse.detach()
+            else:
+                x0_t = x0_t.detach()
             xt_next = xt_next.detach()
             
             x0_preds.append(x0_t.to('cpu'))

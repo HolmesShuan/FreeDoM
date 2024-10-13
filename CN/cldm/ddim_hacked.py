@@ -313,7 +313,7 @@ class DDIMSampler(object):
             img, pred_x0 = outs
             intermediates['x_inter'].append(img)
             intermediates['pred_x0'].append(pred_x0)
-
+            
         return img, intermediates
 
     def p_sample_ddim_style(self, x, c, t, index, repeat_noise=False, use_original_steps=False, quantize_denoised=False,
@@ -407,7 +407,6 @@ class DDIMSampler(object):
 
         return x_prev.detach(), pred_x0.detach()
     
-    
     def p_sample_ddim_style_magic(self, x, total_steps, start_step, end_step, lr, c, t, index, repeat_noise=False, use_original_steps=False, quantize_denoised=False,
                       temperature=1., noise_dropout=0., score_corrector=None, corrector_kwargs=None,
                       unconditional_guidance_scale=1., unconditional_conditioning=None,
@@ -475,6 +474,8 @@ class DDIMSampler(object):
             c3 = (1 - a_prev) * (1 - a_t / a_prev) / (1 - a_t)
             c3 = (c3.log() * 0.5).exp()
             x_prev = c1 * pred_x0 + c2 * x + c3 * torch.randn_like(pred_x0)
+            
+            # x_prev = beta_t.sqrt() * x_prev + (1 - beta_t).sqrt() * noise_like(x.shape, device, repeat_noise)
             
             # calculate x0|x,c1
             if self.model.parameterization != "v":
@@ -898,7 +899,7 @@ class DDIMSampler(object):
                     #     x_prev = x_prev - rho * face_id_loss_grad.detach()
                     x_prev = x_prev - face_id_loss_magic_grad.detach()
             
-            x = beta_t.sqrt() * x_prev + (1 - beta_t).sqrt() * noise_like(x.shape, device, repeat_noise)
+            # x = beta_t.sqrt() * x_prev + (1 - beta_t).sqrt() * noise_like(x.shape, device, repeat_noise)
 
         return x_prev.detach(), pred_x0.detach()
 
