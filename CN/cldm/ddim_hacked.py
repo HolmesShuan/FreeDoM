@@ -7,6 +7,7 @@ import torch.nn.functional as F
 import os
 from PIL import Image
 import torchvision
+import torchvision.utils as vutils
 from ldm.modules.diffusionmodules.util import make_ddim_sampling_parameters, make_ddim_timesteps, noise_like, extract_into_tensor
 
 import cv2
@@ -28,6 +29,25 @@ import os
 import dlib
 from skimage import transform as trans
 from skimage import io
+
+
+def mgd(grads):
+    g1 = grads[0].view(-1)
+    g2 = grads[1].view(-1)
+
+    g11 = torch.dot(g1, g1)
+    g12 = torch.dot(g1, g2)
+    g22 = torch.dot(g2, g2)
+
+    if g12 < min(g11, g22):
+        x = (g22 - g12) / (g11 + g22 - 2*g12 + 1e-8)
+    elif g11 < g22:
+        x = 1
+    else:
+        x = 0
+    print('[Debug] x : ', x)
+    g_mgd = x * grads[0] + (1 - x) * grads[1] # mgd gradient g_mgd
+    return g_mgd
 
 
 def get_points_and_rec(img, detector, shape_predictor, size_threshold=999):
@@ -66,12 +86,16 @@ def align_and_save(img, src_points, template_path, template_scale=1, img_size=25
     """
     out_size = (img_size, img_size)
     reference = np.load(template_path) / template_scale * (img_size / 256)
-
+    M_list = []
+    shape_list = []
+    
     for idx, spoint in enumerate(src_points):
         tform = trans.SimilarityTransform()
         tform.estimate(spoint, reference)
         M = tform.params[0:2,:]
-        return M, img.shape
+        M_list.append(M)
+        shape_list.append(img.shape)
+    return M_list, shape_list
 
 
 def align_and_save_dir(src_path, template_path='./pretrain_models/FFHQ_template.npy', template_scale=4, use_cnn_detector=True, img_size=256):
@@ -92,11 +116,13 @@ def align_and_save_dir(src_path, template_path='./pretrain_models/FFHQ_template.
         return align_and_save(img, points, template_path, template_scale, img_size=img_size)
 
 
-def get_tensor_M(src_path):
+def get_tensor_M(src_path, index=0):
     """
         这个函数的作用是将人脸对齐后的变换矩阵 M 转换为 PyTorch 张量格式，方便后续在神经网络中使用。
     """
     M, s = align_and_save_dir(src_path)
+    M = M[index]
+    s = s[index]
     h, w = s[0], s[1]
     a = torch.Tensor(
         [
@@ -140,6 +166,10 @@ class DDIMSampler(object):
             self.idloss = IDLoss(ref_path=add_ref_path).cuda()
             M = get_tensor_M(ref_path)  # 获取对齐矩阵 M，描述如何将人脸图片变换为标准对齐的形状。
             self.grid = F.affine_grid(M, (1, 3, 256, 256), align_corners=True).cuda()  # 基于变换矩阵 M 生成用于几何变换的网格
+            self.grid_2nd = None
+            if 'couple' in ref_path:
+                M_2nd = get_tensor_M(ref_path, index=1)  # 获取对齐矩阵 M，描述如何将人脸图片变换为标准对齐的形状。
+                self.grid_2nd = F.affine_grid(M_2nd, (1, 3, 256, 256), align_corners=True).cuda()  # 基于变换矩阵 M 生成用于几何变换的网格
         elif self.add_condition_mode == "style":
             # image_encoder = CLIPEncoder(need_ref=True, ref_path=add_ref_path).cuda()
             image_encoder = VGG16Encoder(need_ref=True, ref_path=add_ref_path, image_size=image_size).cuda()
@@ -181,6 +211,7 @@ class DDIMSampler(object):
             (1 - self.alphas_cumprod_prev) / (1 - self.alphas_cumprod) * (
                         1 - self.alphas_cumprod / self.alphas_cumprod_prev))
         self.register_buffer('ddim_sigmas_for_original_num_steps', sigmas_for_original_sampling_steps)
+        self.use_mgda = True
 
     # @torch.no_grad()
     def sample(self,
@@ -805,10 +836,10 @@ class DDIMSampler(object):
         x.requires_grad = True
         self.model.requires_grad_(True)
 
-        repeat = 1 
+        repeat = 1
         # start = 40
-        start = 100
-        end = -10
+        start = 60
+        end = 10
         if self.no_freedom:
             start = end = -10
 
@@ -826,6 +857,10 @@ class DDIMSampler(object):
                 e_t = self.model.predict_eps_from_z_and_v(x, t, model_output)
             else:
                 e_t = model_output
+                
+            if self.grid_2nd is not None:
+                x_2nd = x.clone()
+                e_t_2nd = self.model.predict_eps_from_z_and_v(x_2nd, t, model_output)
 
             if score_corrector is not None:
                 assert self.model.parameterization == "eps", 'not implemented'
@@ -848,6 +883,12 @@ class DDIMSampler(object):
                 pred_x0 = (x - sqrt_one_minus_at * e_t) / a_t.sqrt()
             else:
                 pred_x0 = self.model.predict_start_from_z_and_v(x, t, model_output)
+                
+            if self.grid_2nd is not None:
+                if self.model.parameterization != "v":
+                    pred_x0_2nd = (x_2nd - sqrt_one_minus_at * e_t_2nd) / a_t.sqrt()
+                else:
+                    pred_x0_2nd = self.model.predict_start_from_z_and_v(x_2nd, t, model_output)
 
             if quantize_denoised:
                 pred_x0, _, *_ = self.model.first_stage_model.quantize(pred_x0)
@@ -861,16 +902,22 @@ class DDIMSampler(object):
             c3 = (c3.log() * 0.5).exp()
             x_prev = c1 * pred_x0 + c2 * x + c3 * torch.randn_like(pred_x0)
             
+            if self.grid_2nd is not None:
+                x_prev_2nd = c1 * pred_x0_2nd + c2 * x_2nd + c3 * torch.randn_like(pred_x0)
+            
             # calculate x0|x,c1
             if self.model.parameterization != "v":
                 x_prev_given_c1 = x_prev.clone() # .detach()
                 e_t_given_c1 = self.model.predict_eps_from_z_and_v(x_prev_given_c1, t, model_output)
                 pred_x0_given_c1 = (x_prev_given_c1 - sqrt_one_minus_at * e_t_given_c1) / a_t.sqrt()
+                if self.grid_2nd is not None:
+                    x_prev_given_c1_2nd = x_prev_2nd.clone() # .detach()
+                    e_t_given_c1_2nd = self.model.predict_eps_from_z_and_v(x_prev_given_c1_2nd, t, model_output)
+                    pred_x0_given_c1_2nd = (x_prev_given_c1_2nd - sqrt_one_minus_at * e_t_given_c1_2nd) / a_t.sqrt()
             else:
                 pred_x0_given_c1 = self.model.predict_start_from_z_and_v(x_prev_given_c1, t, model_output)
-
-            # if quantize_denoised:
-            #     pred_x0_given_c1, _, *_ = self.model.first_stage_model.quantize(pred_x0_given_c1)
+                if self.grid_2nd is not None:
+                    pred_x0_given_c1_2nd = self.model.predict_start_from_z_and_v(x_prev_given_c1, t, model_output)
             
             if start > index >= end:
                 D_x0_t = self.model.decode_first_stage(pred_x0_given_c1)
@@ -886,18 +933,37 @@ class DDIMSampler(object):
                 rho = correction_1d_l2_norm.item() * unconditional_guidance_scale
                 rho = rho / face_id_loss_grad_1d_norm.item() * 0.08
                 print('[Debug] rho : ', rho)
-                
-            if start > index >= end:
                 gradient_prod = torch.dot(x_prev.view(-1), rho * face_id_loss_grad.detach().view(-1))
+                # if self.grid_2nd is None:
                 face_id_loss_magic_grad = torch.autograd.grad(outputs=gradient_prod, inputs=x)[0]
-                with torch.no_grad():
-                    face_id_loss_grad_vec = face_id_loss_magic_grad.flatten()
-                    engery_func_grad_vec = e_t.flatten()
-                    cos_sim = F.cosine_similarity(face_id_loss_grad_vec, engery_func_grad_vec, dim=0)
-                    print('[INFO] Cos Sim : ', cos_sim.cpu().item())
-                    # if cos_sim < 0:
-                    #     x_prev = x_prev - rho * face_id_loss_grad.detach()
-                    x_prev = x_prev - face_id_loss_magic_grad.detach()
+                # x_prev = x_prev - face_id_loss_magic_grad.detach()
+                # with torch.no_grad():
+                #     face_id_loss_grad_vec = face_id_loss_magic_grad.flatten()
+                #     engery_func_grad_vec = e_t.flatten()
+                #     cos_sim = F.cosine_similarity(face_id_loss_grad_vec, engery_func_grad_vec, dim=0)
+                #     print('[INFO] Cos Sim : ', cos_sim.cpu().item())
+                #     if cos_sim < 0:
+                #         x_prev = x_prev - rho * face_id_loss_grad.detach()  
+                if self.grid_2nd is not None:
+                    D_x0_t_2nd = self.model.decode_first_stage(pred_x0_given_c1_2nd)
+                    warp_D_x0_t_2nd = F.grid_sample(D_x0_t_2nd, self.grid_2nd, align_corners=True)
+                    residual_2nd = self.idloss.get_residual(warp_D_x0_t_2nd, dual_sup=True)
+                    face_id_loss_2nd = torch.linalg.norm(residual_2nd)
+                    face_id_loss_grad = torch.autograd.grad(outputs=face_id_loss_2nd, inputs=x_prev_given_c1_2nd)[0]
+                    face_id_loss_grad_1d = face_id_loss_grad.view(-1)
+                    face_id_loss_grad_1d_norm = torch.norm(face_id_loss_grad_1d, p=2)
+                    rho = correction_1d_l2_norm.item() * unconditional_guidance_scale
+                    rho = rho / face_id_loss_grad_1d_norm.item() * 0.08
+                    print('[Debug] rho : ', rho)
+                    gradient_prod_2nd = torch.dot(x_prev_2nd.view(-1), rho * face_id_loss_grad.detach().view(-1))
+                    face_id_loss_magic_grad_2nd = torch.autograd.grad(outputs=gradient_prod_2nd, inputs=x_2nd)[0]
+                    # x_prev = x_prev - face_id_loss_magic_grad_2nd.detach()
+                
+                if self.use_mgda:
+                    grad_0 = face_id_loss_magic_grad.detach()
+                    grad_1 = face_id_loss_magic_grad_2nd.detach()
+                    mdga_grad = mgd([grad_0, grad_1])
+                    x_prev = x_prev - mdga_grad * 2.0
             
             # x = beta_t.sqrt() * x_prev + (1 - beta_t).sqrt() * noise_like(x.shape, device, repeat_noise)
 
