@@ -21,7 +21,7 @@ to_tensor = torchvision.transforms.Compose([
 ])
 
 from .clip.base_clip import CLIPEncoder
-
+from .low_filter import LowFilter, VGG16Encoder
 
 class DDIMSampler(object):
     def __init__(self, model, schedule="linear", **kwargs):
@@ -108,6 +108,8 @@ class DDIMSampler(object):
         print(f'Data shape for DDIM sampling is {size}, eta {eta}')
 
         self.image_encoder = CLIPEncoder(need_ref=True, ref_path=style_ref_img_path).cuda()
+        self.low_pass_filter = LowFilter(need_ref=True).cuda()
+        self.vgg_content_filter = VGG16Encoder(need_ref=True).cuda()
 
         samples, intermediates = self.ddim_sampling(conditioning, size,
                                                     callback=callback,
@@ -166,7 +168,8 @@ class DDIMSampler(object):
                 img = img_orig * mask + (1. - mask) * img
 
             # outs = self.p_sample_ddim_conditional(img, cond, ts, index=index, use_original_steps=ddim_use_original_steps,
-            outs = self.p_sample_ddim_magic_conditional(img, cond, ts, index=index, use_original_steps=ddim_use_original_steps,
+            # outs = self.p_sample_ddim_magic_conditional(img, cond, ts, index=index, use_original_steps=ddim_use_original_steps,
+            outs = self.p_sample_ddim_magic_conditional_v2(img, cond, ts, index=index, use_original_steps=ddim_use_original_steps,
                                     quantize_denoised=quantize_denoised, temperature=temperature,
                                     noise_dropout=noise_dropout, score_corrector=score_corrector,
                                     corrector_kwargs=corrector_kwargs,
@@ -186,7 +189,7 @@ class DDIMSampler(object):
                 count2 += 1
                 x_sample = 255. * rearrange(x_sample.cpu().numpy(), 'c h w -> h w c')
                 img_save = Image.fromarray(x_sample.astype(np.uint8))
-                img_save.save(os.path.join("/homesda/yydeng/xyhe/stable-diffusion/intermediates", "{}_{}.png".format(count1, count2)))
+                img_save.save(os.path.join("/home/hexiangyu/FreeDoM/SD_style/intermediates", "{}_{}.png".format(count1, count2)))
 
             if callback: callback(i)
             if img_callback: img_callback(pred_x0, i)
@@ -297,6 +300,8 @@ class DDIMSampler(object):
             repeat = 1
         elif start > index >= end + 10:
             repeat = 3
+            # repeat = 2
+            # repeat = 1
         else:
             repeat = 1 
 
@@ -373,8 +378,9 @@ class DDIMSampler(object):
                 style_loss_grad_1d = style_loss_grad.view(-1)
                 style_loss_grad_1d_norm = torch.norm(style_loss_grad_1d, p=2)
                 rho = correction_1d_l2_norm.item() * unconditional_guidance_scale
-                rho = rho / style_loss_grad_1d_norm.item() * 0.15
-                # print('[Debug] rho : ', rho)
+                # rho = rho / style_loss_grad_1d_norm.item() * 0.15
+                rho = rho / style_loss_grad_1d_norm.item() * 0.55
+                print('[Debug] rho : ', rho)
                 
             if start > index >= end:
                 gradient_prod = torch.dot(x_prev.view(-1), rho * style_loss_grad_1d.detach().view(-1))
@@ -387,11 +393,137 @@ class DDIMSampler(object):
                     # if cos_sim < 0:
                     #     x_prev = x_prev - style_loss_magic_grad.detach()
                 x_prev = x_prev - style_loss_magic_grad.detach()
-                
+            else:
+                x = beta_t.sqrt() * x_prev + (1 - beta_t).sqrt() * noise_like(x.shape, device, repeat_noise)
             # if start > index >= end:
             #     x_prev = x_prev - rho * norm_grad.detach()
 
-            x = beta_t.sqrt() * x_prev + (1 - beta_t).sqrt() * noise_like(x.shape, device, repeat_noise)
+            # x = beta_t.sqrt() * x_prev + (1 - beta_t).sqrt() * noise_like(x.shape, device, repeat_noise)
+
+        return x_prev.detach(), pred_x0.detach()
+    
+    
+    def p_sample_ddim_magic_conditional_v2(self, x, c, t, index, repeat_noise=False, use_original_steps=False, quantize_denoised=False,
+                      temperature=1., noise_dropout=0., score_corrector=None, corrector_kwargs=None,
+                      unconditional_guidance_scale=1., unconditional_conditioning=None,):
+        b, *_, device = *x.shape, x.device
+
+        x.requires_grad = True
+        self.model.requires_grad_(True)
+
+        # hyperparameters: 
+        # "repeat" is the number for time-travel strategy; 
+        # "start" and "end" are the end points for the range of guidance;
+        # start = 100
+        # end = 0
+        start = 70
+        end = 30
+        # end = 0
+        if index >= start:
+            repeat = 1
+        elif start > index >= end + 10:
+            repeat = 3
+            # repeat = 2
+            # repeat = 1
+        else:
+            repeat = 1 
+
+        for j in range(repeat):
+
+            x = x.detach().requires_grad_(True)
+
+            if unconditional_conditioning is None or unconditional_guidance_scale == 1.:
+                e_t = self.model.apply_model(x, t, c)
+            else:
+                x_in = torch.cat([x] * 2)
+                t_in = torch.cat([t] * 2)
+                c_in = torch.cat([unconditional_conditioning, c])
+                e_t_uncond, e_t = self.model.apply_model(x_in, t_in, c_in).chunk(2)
+                # unconditional_guidance_scale = 5.0
+                correction = e_t - e_t_uncond
+                e_t = e_t_uncond + unconditional_guidance_scale * correction
+
+            if score_corrector is not None:
+                assert self.model.parameterization == "eps"
+                e_t = score_corrector.modify_score(self.model, e_t, x, t, c, **corrector_kwargs)
+
+            alphas = self.model.alphas_cumprod if use_original_steps else self.ddim_alphas
+            alphas_prev = self.model.alphas_cumprod_prev if use_original_steps else self.ddim_alphas_prev
+            sqrt_one_minus_alphas = self.model.sqrt_one_minus_alphas_cumprod if use_original_steps else self.ddim_sqrt_one_minus_alphas
+            sigmas = self.model.ddim_sigmas_for_original_num_steps if use_original_steps else self.ddim_sigmas
+            sigmas = self.ddim_sigmas
+ 
+            a_t = torch.full((b, 1, 1, 1), alphas[index], device=device)
+            a_prev = torch.full((b, 1, 1, 1), alphas_prev[index], device=device)
+            beta_t = a_t / a_prev
+            sigma_t = torch.full((b, 1, 1, 1), sigmas[index], device=device)
+            sqrt_one_minus_at = torch.full((b, 1, 1, 1), sqrt_one_minus_alphas[index],device=device)
+
+            # current prediction for x_0
+            pred_x0 = (x - sqrt_one_minus_at * e_t) / a_t.sqrt()
+            
+            # if start > index >= end:
+            #     D_x0_t = self.model.decode_first_stage(pred_x0)
+            #     residual = self.image_encoder.get_gram_matrix_residual(D_x0_t)
+            #     norm = torch.linalg.norm(residual)
+
+            #     norm_grad = torch.autograd.grad(outputs=norm, inputs=x)[0]
+            #     rho = (correction * correction).mean().sqrt().item() * unconditional_guidance_scale / (norm_grad * norm_grad).mean().sqrt().item() * 0.2
+
+            c1 = a_prev.sqrt() * (1 - a_t / a_prev) / (1 - a_t)
+            c2 = (a_t / a_prev).sqrt() * (1 - a_prev) / (1 - a_t)
+            c3 = (1 - a_prev) * (1 - a_t / a_prev) / (1 - a_t)
+            c3 = (c3.log() * 0.5).exp()
+            x_prev = c1 * pred_x0 + c2 * x + c3 * torch.randn_like(pred_x0)
+
+            # calculate x0|x,c1
+            x_prev_given_c1 = x_prev.clone() # .detach()
+            if unconditional_conditioning is None or unconditional_guidance_scale == 1.:
+                e_t_given_c1 = self.model.apply_model(x_prev_given_c1, t, c)
+            else:
+                x_in = torch.cat([x_prev_given_c1] * 2)
+                t_in = torch.cat([t] * 2)
+                c_in = torch.cat([unconditional_conditioning, c])
+                e_t_uncond, e_t = self.model.apply_model(x_in, t_in, c_in).chunk(2)
+                # unconditional_guidance_scale = 5.0
+                correction = e_t - e_t_uncond
+                e_t_given_c1 = e_t_uncond + unconditional_guidance_scale * correction
+            pred_x0_given_c1 = (x_prev_given_c1 - sqrt_one_minus_at * e_t_given_c1) / a_t.sqrt()
+            
+            if start > index >= end:
+                D_x0_t = self.model.decode_first_stage(pred_x0_given_c1)
+                # residual = self.image_encoder.get_gram_matrix_residual(D_x0_t)
+                # residual = self.low_pass_filter.get_low_fass_filter_residual(D_x0_t)
+                residual = self.vgg_content_filter.get_content_residual(D_x0_t)
+                style_loss = torch.linalg.norm(residual)
+                print('[Debug] Style Loss : ', style_loss.cpu().item())
+                style_loss_grad = torch.autograd.grad(outputs=style_loss, inputs=x_prev_given_c1)[0]
+                correction_1d = correction.view(-1)
+                correction_1d_l2_norm = torch.norm(correction_1d, p=2)
+                style_loss_grad_1d = style_loss_grad.view(-1)
+                style_loss_grad_1d_norm = torch.norm(style_loss_grad_1d, p=2)
+                rho = correction_1d_l2_norm.item() * unconditional_guidance_scale
+                # rho = rho / style_loss_grad_1d_norm.item() * 0.15
+                rho = rho / style_loss_grad_1d_norm.item()
+                # print('[Debug] rho : ', rho)
+                
+            if start > index >= end:
+                gradient_prod = torch.dot(x_prev.view(-1), rho * style_loss_grad_1d.detach().view(-1))
+                style_loss_magic_grad = torch.autograd.grad(outputs=gradient_prod, inputs=x)[0]
+                with torch.no_grad():
+                    style_loss_grad_vec = style_loss_magic_grad.flatten()
+                    engery_func_grad_vec = e_t.flatten()
+                    cos_sim = F.cosine_similarity(style_loss_grad_vec, engery_func_grad_vec, dim=0)
+                    # print('[INFO] Cos Sim : ', cos_sim.cpu().item())
+                    # if cos_sim < 0:
+                    #     x_prev = x_prev - style_loss_magic_grad.detach()
+                x_prev = x_prev - style_loss_magic_grad.detach()
+            else:
+                x = beta_t.sqrt() * x_prev + (1 - beta_t).sqrt() * noise_like(x.shape, device, repeat_noise)
+            # if start > index >= end:
+            #     x_prev = x_prev - rho * norm_grad.detach()
+
+            # x = beta_t.sqrt() * x_prev + (1 - beta_t).sqrt() * noise_like(x.shape, device, repeat_noise)
 
         return x_prev.detach(), pred_x0.detach()
 

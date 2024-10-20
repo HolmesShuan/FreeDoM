@@ -14,7 +14,7 @@ class FaceLandMarkTool(nn.Module):
         self.out_size = 112
         map_location = lambda storage, loc: storage.cuda()
         self.landmark_net = MobileFaceNet([self.out_size, self.out_size], 136)
-        checkpoint = torch.load('/workspace/ddgm/functions/landmark/checkpoint/mobilefacenet_model_best.pth.tar', map_location=map_location)
+        checkpoint = torch.load('/ssd/model/facenet/mobilefacenet_model_best.pth.tar', map_location=map_location)
         self.landmark_net.load_state_dict(checkpoint['state_dict'])
         self.landmark_net = self.landmark_net.eval()
         

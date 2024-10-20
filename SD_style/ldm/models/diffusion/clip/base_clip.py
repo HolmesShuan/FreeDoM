@@ -42,7 +42,7 @@ class CLIPEncoder(nn.Module):
             ])
             
             img = Image.open(ref_path).convert('RGB')
-            image = img.resize((224, 224), Image.Resampling.BILINEAR)
+            image = img.resize((224, 224), Image.BILINEAR)
             img = self.to_tensor(image)
             img = torch.unsqueeze(img, 0)
             img = img.cuda()

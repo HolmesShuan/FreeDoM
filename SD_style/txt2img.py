@@ -22,6 +22,11 @@ from ldm.models.diffusion.dpm_solver import DPMSolverSampler
 from diffusers.pipelines.stable_diffusion.safety_checker import StableDiffusionSafetyChecker
 from transformers import AutoFeatureExtractor
 
+import logging
+
+# 配置根日志记录器
+logging.basicConfig(level=logging.INFO,
+                    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 
 # load safety model
 safety_model_id = "CompVis/stable-diffusion-safety-checker"
@@ -222,7 +227,7 @@ def main():
     parser.add_argument(
         "--ckpt",
         type=str,
-        default="models/ldm/stable-diffusion-v1/sd-v1-4.ckpt",
+        default="/ssd/model/stable_diffusion/sd-v1-4.ckpt",
         help="path to checkpoint of model",
     )
     parser.add_argument(

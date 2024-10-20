@@ -19,10 +19,18 @@ import argparse
 parser = argparse.ArgumentParser()
 parser.add_argument("--seed", type=int, default=1234, help="Random seed")
 parser.add_argument("--timesteps", type=int, default=100)
+parser.add_argument("--start_steps", type=int, default=100)
+parser.add_argument("--end_steps", type=int, default=0)
+parser.add_argument("--repeat", type=int, default=1)
+parser.add_argument("--cagrad_weight", type=float, default=0.08)
 parser.add_argument("--prompt", type=str, default="young man, realistic photo")
 parser.add_argument("--pose_ref", type=str, default="./test_imgs/pose4.jpg")
 parser.add_argument("--id_ref", type=str, default=None)
+parser.add_argument("--id_ref_2nd", type=str, default=None)
 parser.add_argument("--no_freedom", action="store_true")
+parser.add_argument("--time_reverse_step", action="store_true")
+parser.add_argument("--use_cagrad", action="store_true")
+parser.add_argument("--use_magic", action="store_true")
 args = parser.parse_args()
 
 apply_openpose = OpenposeDetector()
@@ -30,7 +38,7 @@ apply_openpose = OpenposeDetector()
 model = create_model('./models/cldm_v15.yaml').cpu()  # ControlNet SDv1.5
 model.load_state_dict(load_state_dict('/ssd/model/stable_diffusion/control_sd15_openpose.pth', location='cuda'))
 model = model.cuda()
-ddim_sampler = DDIMSampler(model, add_condition_mode="face_id", ref_path=args.pose_ref, add_ref_path=args.id_ref, no_freedom=args.no_freedom)
+ddim_sampler = DDIMSampler(model, add_condition_mode="face_id", ref_path=args.pose_ref, face_ref_path=args.id_ref, face_ref_2nd_path=args.id_ref_2nd, no_freedom=args.no_freedom)
 
 
 def process(input_image, prompt, a_prompt, n_prompt, num_samples, image_resolution, detect_resolution, ddim_steps, guess_mode, strength, scale, seed, eta):
@@ -65,7 +73,14 @@ def process(input_image, prompt, a_prompt, n_prompt, num_samples, image_resoluti
     samples, _ = ddim_sampler.sample(ddim_steps, num_samples,
                                                     shape, cond, verbose=False, eta=eta,
                                                     unconditional_guidance_scale=scale,
-                                                    unconditional_conditioning=un_cond)
+                                                    unconditional_conditioning=un_cond,
+                                                    detail_control={'start_steps' : args.start_steps,
+                                                                    'end_steps' : args.end_steps,
+                                                                    'repeat' : args.repeat,
+                                                                    'cagrad_weight' : args.cagrad_weight,
+                                                                    'time_reverse_step' : args.time_reverse_step,
+                                                                    'use_cagrad': args.use_cagrad,
+                                                                    'use_magic': args.use_magic})
 
     if config.save_memory:
         model.low_vram_shift(is_diffusing=False)

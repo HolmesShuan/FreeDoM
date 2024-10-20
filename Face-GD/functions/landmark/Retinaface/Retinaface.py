@@ -14,7 +14,7 @@ import time
 
 
 # some global configs
-trained_model='/workspace/ddgm/functions/landmark/Retinaface/weights/mobilenet0.25_Final.pth'
+trained_model='/ssd/model/facenet/mobilenet0.25_Final.pth'
 network='mobile0.25'
 confidence_threshold = 0.05
 top_k = 5000

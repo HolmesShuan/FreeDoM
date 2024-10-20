@@ -11,7 +11,7 @@ import torch.utils.data as data
 from models.diffusion import Model
 # from datasets import get_dataset, data_transform, inverse_data_transform
 from functions.ckpt_util import get_ckpt_path, download
-from functions.denoising import clip_ddim_diffusion, parse_ddim_diffusion, sketch_ddim_diffusion, landmark_ddim_diffusion, arcface_ddim_diffusion, clip_parse_ddim_diffusion, clip_parse_ddim_diffusion_magic
+from functions.denoising import clip_ddim_diffusion, parse_ddim_diffusion, sketch_ddim_diffusion, landmark_ddim_diffusion, arcface_ddim_diffusion, clip_parse_ddim_diffusion, clip_parse_ddim_diffusion_magic, arcface_land_ddim_diffusion, arcface_land_ddim_diffusion_magic, clip_parse_id_ddim_diffusion, clip_parse_id_ddim_diffusion_magic
 import torchvision.utils as tvu
 
 from guided_diffusion.unet import UNetModel
@@ -187,11 +187,17 @@ class Diffusion(object):
             elif mode == "arc_ddim":
                 x, _ = self.sample_image_alogrithm_arcface_ddim(x, model, last=False, cls_fn=cls_fn, rho_scale=args.rho_scale, stop=args.stop, ref_path=args.ref_path)
             elif mode == "arc_land_ddim":
-                x, _ = self.sample_image_alogrithm_arcface_land_ddim(x, model, last=False, cls_fn=cls_fn, rho_scale=args.rho_scale, stop=args.stop, ref_path=args.ref_path)
+                x, _ = self.sample_image_alogrithm_arcface_land_ddim(x, model, last=False, cls_fn=cls_fn, rho_scale=[args.id_rho_scale, args.land_rho_scale], stop=args.stop, id_ref_path=args.id_ref_path, land_ref_path=args.land_ref_path)
+            elif mode == "arc_land_ddim_magic":
+                x, _ = self.sample_image_alogrithm_arcface_land_ddim_magic(x, model, last=False, cls_fn=cls_fn, rho_scale=[args.id_rho_scale, args.land_rho_scale], stop=args.stop, id_ref_path=args.id_ref_path, land_ref_path=args.land_ref_path)
             elif mode == "clip_parse_ddim":
-                x, _ = self.sample_image_alogrithm_clip_parse_ddim(x, model, last=False, cls_fn=cls_fn, rho_scale=args.rho_scale, prompt=args.prompt, stop=args.stop, domain=args.model_type, ref_path=args.ref_path)
+                x, _ = self.sample_image_alogrithm_clip_parse_ddim(x, model, last=False, cls_fn=cls_fn, rho_scale=[args.clip_rho_scale, args.seg_rho_scale], prompt=args.prompt, stop=args.stop, domain=args.model_type, ref_path=args.ref_path)
             elif mode == 'clip_parse_ddim_magic':
-                x, _ = self.sample_image_alogrithm_clip_parse_ddim_magic(x, model, last=False, cls_fn=cls_fn, rho_scale=args.rho_scale, prompt=args.prompt, stop=args.stop, domain=args.model_type, ref_path=args.ref_path)
+                x, _ = self.sample_image_alogrithm_clip_parse_ddim_magic(x, model, last=False, cls_fn=cls_fn, rho_scale=[args.clip_rho_scale, args.seg_rho_scale], prompt=args.prompt, stop=args.stop, domain=args.model_type, ref_path=args.ref_path)
+            elif mode == 'clip_parse_id_ddim':
+                x, _ = self.sample_image_alogrithm_clip_parse_id_ddim(x, model, last=False, cls_fn=cls_fn, rho_scale=[args.clip_rho_scale, args.seg_rho_scale, args.id_rho_scale], prompt=args.prompt, stop=args.stop, domain=args.model_type, ref_path=args.ref_path, id_ref_path=args.id_ref_path)
+            elif mode == 'clip_parse_id_ddim_magic':
+                x, _ = self.sample_image_alogrithm_clip_parse_id_ddim_magic(x, model, last=False, cls_fn=cls_fn, rho_scale=[args.clip_rho_scale, args.seg_rho_scale, args.id_rho_scale], prompt=args.prompt, stop=args.stop, domain=args.model_type, ref_path=args.ref_path, id_ref_path=args.id_ref_path)
             
             x = [((y + 1.0) / 2.0).clamp(0.0, 1.0) for y in x]
 
@@ -281,6 +287,54 @@ class Diffusion(object):
         x.requires_grad = True
         
         x = arcface_ddim_diffusion(x, seq, model, self.betas, cls_fn=cls_fn, rho_scale=rho_scale, stop=stop, ref_path=ref_path)
+
+        if last:
+            x = x[0][-1]
+        return x
+    
+    def sample_image_alogrithm_arcface_land_ddim(self, x, model, last=True, cls_fn=None, rho_scale=None, stop=100, id_ref_path=None, land_ref_path=None):
+        skip = self.num_timesteps // self.args.timesteps
+        seq = range(0, self.num_timesteps, skip)
+        
+        x.requires_grad = True
+        
+        x = arcface_land_ddim_diffusion(x, seq, model, self.betas, cls_fn=cls_fn, rho_scale=rho_scale, stop=stop, id_ref_path=id_ref_path, land_ref_path=land_ref_path)
+
+        if last:
+            x = x[0][-1]
+        return x
+    
+    def sample_image_alogrithm_arcface_land_ddim_magic(self, x, model, last=True, cls_fn=None, rho_scale=None, stop=100, id_ref_path=None, land_ref_path=None):
+        skip = self.num_timesteps // self.args.timesteps
+        seq = range(0, self.num_timesteps, skip)
+        
+        x.requires_grad = True
+        
+        x = arcface_land_ddim_diffusion_magic(x, seq, model, self.betas, cls_fn=cls_fn, rho_scale=rho_scale, stop=stop, id_ref_path=id_ref_path, land_ref_path=land_ref_path)
+
+        if last:
+            x = x[0][-1]
+        return x
+    
+    def sample_image_alogrithm_clip_parse_id_ddim(self, x, model, last=True, cls_fn=None, rho_scale=None, prompt=None, stop=100, domain="face", ref_path=None, id_ref_path=None):
+        skip = self.num_timesteps // self.args.timesteps
+        seq = range(0, self.num_timesteps, skip)
+        
+        x.requires_grad = True
+        
+        x = clip_parse_id_ddim_diffusion(x, seq, model, self.betas, cls_fn=cls_fn, rho_scale=rho_scale, prompt=prompt, stop=stop, domain=domain, ref_path=ref_path, id_ref_path=id_ref_path)
+
+        if last:
+            x = x[0][-1]
+        return x
+    
+    def sample_image_alogrithm_clip_parse_id_ddim_magic(self, x, model, last=True, cls_fn=None, rho_scale=None, prompt=None, stop=100, domain="face", ref_path=None, id_ref_path=None):
+        skip = self.num_timesteps // self.args.timesteps
+        seq = range(0, self.num_timesteps, skip)
+        
+        x.requires_grad = True
+        
+        x = clip_parse_id_ddim_diffusion_magic(x, seq, model, self.betas, cls_fn=cls_fn, rho_scale=rho_scale, prompt=prompt, stop=stop, domain=domain, ref_path=ref_path, id_ref_path=id_ref_path)
 
         if last:
             x = x[0][-1]

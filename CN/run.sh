@@ -1,6 +1,10 @@
+# Pose Condition + ID 1 Condition + ID 2 Condition
+CUDA_VISIBLE_DEVICES=2 python pose2image.py --seed 3737 --timesteps 100 --prompt "two young men, realistic photo" --pose_ref "./test_imgs/couple_v2.jpeg" --id_ref "./test_imgs/id3.png" --id_ref_2nd "./test_imgs/id7.jpg" --use_cagrad --cagrad_weight 0.08 > couple_magic.txt
+
+
 # CUDA_VISIBLE_DEVICES=2 python pose2image.py --seed 37837 --timesteps 100 --prompt "young man, realitic photo" --pose_ref "./test_imgs/pose4.jpg" --id_ref "./test_imgs/id3.png"
 # CUDA_VISIBLE_DEVICES=2 python pose2image.py --seed 3737 --timesteps 100 --prompt "two young men, realistic photo" --pose_ref "./test_imgs/couple.jpeg" --id_ref "./test_imgs/id3.png"
-CUDA_VISIBLE_DEVICES=2 python pose2image.py --seed 3737 --timesteps 100 --prompt "two young men, realistic photo" --pose_ref "./test_imgs/couple_v2.jpeg" --id_ref "./test_imgs/id3.png"
+# CUDA_VISIBLE_DEVICES=2 python pose2image.py --seed 3737 --timesteps 100 --prompt "two young men, realistic photo" --pose_ref "./test_imgs/couple_v2.jpeg" --id_ref "./test_imgs/id3.png"
 # CUDA_VISIBLE_DEVICES=2 python pose2image.py --seed 3737 --timesteps 100 --prompt "two young men, realistic photo" --pose_ref "./test_imgs/couple.jpg" --id_ref "./test_imgs/id3.png"
 
 # CUDA_VISIBLE_DEVICES=2 python scribble2image.py --seed 1234 --timesteps 95 --start_steps 95 --end_steps 0 --lr 0.7 --prompt "bike" --scribble_ref "./test_imgs/s5.png" --style_ref "./test_imgs/xingkong.jpg" --image_size 384

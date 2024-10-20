@@ -33,8 +33,8 @@ class IDLoss(nn.Module):
         if x.shape[2] != 256:
             x = self.pool(x)
         # x = x[:, :, 35:223, 32:220]  # Crop interesting region
-        # if 'input' in prefix:
-        #     x = x[:, :, 35:223, 32:220]  # Crop interesting region
+        if 'input' in prefix:
+            x = x[:, :, 20:236, 20:236]  # Crop interesting region
         if self.debug:
             x_norm = (x + 1.0) / 2.0
             vutils.save_image(x_norm, prefix + '_cropped_face_img.png')

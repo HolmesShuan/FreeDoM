@@ -68,20 +68,29 @@ def parse_args_and_config():
     parser.add_argument(
         "--class_num", type=int, default=10
     )
-
     parser.add_argument(
         "-s",
         "--sample_strategy",
         type=str,
         default=None,
     )
-
     parser.add_argument(
         "--mu", type=float, default=1.0, help=""
     )
-
     parser.add_argument(
         "--rho_scale", type=float, default=0.1
+    )
+    parser.add_argument(
+        "--clip_rho_scale", type=float, default=0.1
+    )
+    parser.add_argument(
+        "--seg_rho_scale", type=float, default=0.2
+    )
+    parser.add_argument(
+        "--land_rho_scale", type=float, default=500.0
+    )
+    parser.add_argument(
+        "--id_rho_scale", type=float, default=100.0
     )
     parser.add_argument(
         "--prompt", type=str, default="black"
@@ -94,6 +103,12 @@ def parse_args_and_config():
     )
     parser.add_argument(
         "--ref_path2", type=str, default=None
+    )
+    parser.add_argument(
+        "--land_ref_path", type=str, default=None
+    )
+    parser.add_argument(
+        "--id_ref_path", type=str, default=None
     )
     parser.add_argument(
         "--scale_weight", type=float, default=None
