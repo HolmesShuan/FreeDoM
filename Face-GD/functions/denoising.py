@@ -312,7 +312,7 @@ def clip_parse_ddim_diffusion(x, seq, model, b, cls_fn=None, rho_scale=None, pro
                 bt = at / at_next
                 xt = bt.sqrt() * xt_next + (1 - bt).sqrt() * torch.randn_like(xt_next)
         
-        if not i <= stop:        
+        if True or not i <= stop:
             with torch.no_grad():
                 residual = clip_encoder.get_residual(xt_next, prompt)
                 norm = torch.linalg.norm(residual)
@@ -424,7 +424,7 @@ def clip_parse_ddim_diffusion_magic(x, seq, model, b, cls_fn=None, rho_scale=Non
                 bt = at / at_next
                 xt = bt.sqrt() * xt_next + (1 - bt).sqrt() * torch.randn_like(xt_next)
         
-        if not i <= stop:    
+        if True or not i <= stop:
             with torch.no_grad():
                 residual = clip_encoder.get_residual(xt_next, prompt)
                 norm = torch.linalg.norm(residual)
@@ -669,7 +669,7 @@ def arcface_land_ddim_diffusion(x, seq, model, b, cls_fn=None, rho_scale=None, s
         x0_preds.append(x0_t.to('cpu'))
         xs.append(xt_next.to('cpu'))
 
-        if not i <= stop:
+        if True or not i <= stop:
             with torch.no_grad():
                 residual = idloss.get_residual(xt_next)
                 norm = torch.linalg.norm(residual)
@@ -766,7 +766,7 @@ def arcface_land_ddim_diffusion_magic(x, seq, model, b, cls_fn=None, rho_scale=N
         x0_preds.append(x0_t.to('cpu'))
         xs.append(xt_next.to('cpu'))
 
-        if not i <= stop:
+        if True or not i <= stop:
             with torch.no_grad():
                 residual = idloss.get_residual(xt_next)
                 norm = torch.linalg.norm(residual)
@@ -858,7 +858,7 @@ def clip_parse_id_ddim_diffusion(x, seq, model, b, cls_fn=None, rho_scale=None, 
                 bt = at / at_next
                 xt = bt.sqrt() * xt_next + (1 - bt).sqrt() * torch.randn_like(xt_next)
         
-        if not i <= stop:
+        if True or not i <= stop:
             with torch.no_grad():
                 residual = clip_encoder.get_residual(xt_next, prompt)
                 norm = torch.linalg.norm(residual)
@@ -991,7 +991,7 @@ def clip_parse_id_ddim_diffusion_magic(x, seq, model, b, cls_fn=None, rho_scale=
                 bt = at / at_next
                 xt = bt.sqrt() * xt_next + (1 - bt).sqrt() * torch.randn_like(xt_next)
         
-        if not i <= stop:
+        if True or not i <= stop:
             with torch.no_grad():
                 residual = clip_encoder.get_residual(xt_next, prompt)
                 norm = torch.linalg.norm(residual)

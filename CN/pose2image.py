@@ -23,10 +23,12 @@ parser.add_argument("--start_steps", type=int, default=100)
 parser.add_argument("--end_steps", type=int, default=0)
 parser.add_argument("--repeat", type=int, default=1)
 parser.add_argument("--cagrad_weight", type=float, default=0.08)
+parser.add_argument("--rho_scale", type=float, default=0.08)
 parser.add_argument("--prompt", type=str, default="young man, realistic photo")
 parser.add_argument("--pose_ref", type=str, default="./test_imgs/pose4.jpg")
 parser.add_argument("--id_ref", type=str, default=None)
 parser.add_argument("--id_ref_2nd", type=str, default=None)
+parser.add_argument("--output_prefix", type=str, default="exp")
 parser.add_argument("--no_freedom", action="store_true")
 parser.add_argument("--time_reverse_step", action="store_true")
 parser.add_argument("--use_cagrad", action="store_true")
@@ -79,8 +81,9 @@ def process(input_image, prompt, a_prompt, n_prompt, num_samples, image_resoluti
                                                                     'repeat' : args.repeat,
                                                                     'cagrad_weight' : args.cagrad_weight,
                                                                     'time_reverse_step' : args.time_reverse_step,
-                                                                    'use_cagrad': args.use_cagrad,
-                                                                    'use_magic': args.use_magic})
+                                                                    'use_cagrad' : args.use_cagrad,
+                                                                    'use_magic' : args.use_magic,
+                                                                    'rho_scale' : args.rho_scale})
 
     if config.save_memory:
         model.low_vram_shift(is_diffusing=False)
@@ -124,5 +127,5 @@ res = process(
 count = 1
 for img in res:
     img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-    cv2.imwrite("./results/face-id_{}.png".format(count), img)
+    cv2.imwrite("./results/{}_face-id_{}.png".format(args.output_prefix, count), img)
     count += 1

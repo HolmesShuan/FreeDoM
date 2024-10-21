@@ -1,0 +1,17 @@
+logging improved.
+cuda
+cuda
+No module 'xformers'. Proceeding without it.
+ControlLDM: Running in eps-prediction mode
+DiffusionWrapper has 859.52 M params.
+making attention of type 'vanilla' with 512 in_channels
+Working with z of shape (1, 4, 32, 32) = 4096 dimensions.
+making attention of type 'vanilla' with 512 in_channels
+Loaded model config from [./models/cldm_v15.yaml]
+Loaded state_dict from [/ssd/model/stable_diffusion/control_sd15_openpose.pth]
+[INFO] Single Portrait Mode.
+[INFO] Seed :  3737
+[Debug] CLDM/DDIM_HACKED
+Data shape for DDIM sampling is (1, 4, 96, 64), eta 0.0
+Running DDIM Sampling with 100 timesteps.
+[Debug] x_prev.shape :  torch.Size([1, 4, 96, 64])
