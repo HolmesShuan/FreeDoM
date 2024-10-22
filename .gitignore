@@ -129,3 +129,11 @@ Face-GD/exp/image_samples/clip_parse_id_ddim/*.png
 Face-GD/exp/image_samples/clip_parse_id_ddim_magic/*.png
 CN/couple.txt
 Content_editing/intermediates/*.png
+Content_editing/outputs/txt2img-samples/*.png
+Content_editing/outputs/txt2img-samples/samples/*.png
+Content_editing/content_cropped_img.png
+Content_editing/ref_cropped_img.png
+Content_editing/style_ref_cropped_img.png
+Content_editing/stylized_content_cropped_img.png
+Content_editing/content_cropped_img.png
+Content_editing/ref_cropped_img.png
