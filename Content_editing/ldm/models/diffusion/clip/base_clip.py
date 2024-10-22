@@ -1,9 +1,12 @@
 import torch
 import torch.nn as nn
 from .clip import clip
+
 # from clip import clip
 import torchvision
 from PIL import Image
+
+import torchvision.utils as vutils
 
 model_name = "ViT-B/16"
 # model_name = "ViT-B/32"
@@ -32,35 +35,48 @@ class CLIPEncoder(nn.Module):
         self.clip_model = load_clip_to_cpu()
         self.clip_model.requires_grad = True
         self.preprocess = torchvision.transforms.Normalize(
-            (0.48145466*2-1, 0.4578275*2-1, 0.40821073*2-1),
-            (0.26862954*2, 0.26130258*2, 0.27577711*2)
+            (0.48145466 * 2 - 1, 0.4578275 * 2 - 1, 0.40821073 * 2 - 1),
+            (0.26862954 * 2, 0.26130258 * 2, 0.27577711 * 2),
         )
         if need_ref:
-            self.to_tensor = torchvision.transforms.Compose([
-                torchvision.transforms.ToTensor(),
-                torchvision.transforms.Normalize((0.48145466, 0.4578275, 0.40821073), (0.26862954, 0.26130258, 0.27577711)),
-            ])
-            
-            img = Image.open(ref_path).convert('RGB')
+            self.to_tensor = torchvision.transforms.Compose(
+                [
+                    torchvision.transforms.ToTensor(),
+                    torchvision.transforms.Normalize(
+                        (0.48145466, 0.4578275, 0.40821073),
+                        (0.26862954, 0.26130258, 0.27577711),
+                    ),
+                ]
+            )
+
+            print("[Debug] Style ref_path : ", ref_path, flush=True)
+
+            img = Image.open(ref_path).convert("RGB")
             image = img.resize((224, 224), Image.BILINEAR)
             img = self.to_tensor(image)
             img = torch.unsqueeze(img, 0)
             img = img.cuda()
             self.ref = img
-    
+            self.debug = True
+
     def get_gram_matrix_residual(self, im1):
-        im1 = torch.nn.functional.interpolate(im1, size=(224, 224), mode='bicubic')
+        im1 = torch.nn.functional.interpolate(im1, size=(224, 224), mode="bicubic")
         im1 = self.preprocess(im1)
 
         f1, feats1 = self.clip_model.encode_image_with_features(im1)
         f2, feats2 = self.clip_model.encode_image_with_features(self.ref)
-        
+
+        if self.debug:
+            x_norm = self.ref / 0.26 + 0.44
+            vutils.save_image(x_norm, "style_ref_cropped_img.png")
+            x_norm = im1 / 0.26 + 0.44
+            vutils.save_image(x_norm, "stylized_content_cropped_img.png")
+
         feat1 = feats1[2][1:, 0, :]
         feat2 = feats2[2][1:, 0, :]
         gram1 = torch.mm(feat1.t(), feat1)
         gram2 = torch.mm(feat2.t(), feat2)
         return gram1 - gram2
-
 
 
 if __name__ == "__main__":

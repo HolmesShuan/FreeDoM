@@ -56,12 +56,9 @@ class VGG16Encoder(nn.Module):
             self.mask_tensor = F.interpolate(torch_array, size=style.size, mode='nearest')
             
             features_ref = self.vgg_model(normalize_batch(self.ref * self.mask_tensor))
-            self.features_ref = features_ref.relu2_2
+            self.content_features_ref = features_ref.relu2_2
             
-            self.preprocess = torchvision.transforms.Normalize(
-                (0.48145466*2-1, 0.4578275*2-1, 0.40821073*2-1),
-                (0.26862954*2, 0.26130258*2, 0.27577711*2)
-            )
+            self.gram_style_ref = [gram_matrix(y) for y in features_ref]
     
     
     def get_content_residual(self, im1):
@@ -77,7 +74,22 @@ class VGG16Encoder(nn.Module):
             x_norm = im1 / 255.
             vutils.save_image(x_norm, 'content_cropped_img.png')
         
-        return features_x.relu2_2 - self.features_ref
+        return features_x.relu2_2 - self.content_features_ref
+    
+    
+    def get_gram_matrix_style_loss(self, im1):
+        im1 = torch.nn.functional.interpolate(im1, size=(self.image_size, self.image_size), mode='bicubic')
+        # im1 = torch.nn.functional.interpolate(im1, size=(512, 512), mode='bicubic')
+        im1 = (im1 + 1.) / 2. * 255
+        x = normalize_batch(im1 * self.mask_tensor)
+        features_x = self.vgg_model(x)
+        
+        style_loss = 0.
+        for ft_y, gm_s in zip(features_x, self.gram_style_ref):
+            gm_y = gram_matrix(ft_y)
+            style_loss += torch.linalg.norm(gm_y - gm_s[:1, :, :])
+        
+        return style_loss
 
 
 class LowFilter(nn.Module):

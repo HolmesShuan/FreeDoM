@@ -20,12 +20,13 @@ from ldm.models.diffusion.plms import PLMSSampler
 from ldm.models.diffusion.dpm_solver import DPMSolverSampler
 import torch.nn.functional as F
 
-from diffusers.pipelines.stable_diffusion.safety_checker import StableDiffusionSafetyChecker
+from diffusers.pipelines.stable_diffusion.safety_checker import (
+    StableDiffusionSafetyChecker,
+)
 from transformers import AutoFeatureExtractor
 import torchvision.transforms as transforms
-transform = transforms.Compose([
-    transforms.ToTensor()
-])
+
+transform = transforms.Compose([transforms.ToTensor()])
 # load safety model
 # safety_model_id = "CompVis/stable-diffusion-safety-checker"
 # safety_feature_extractor = AutoFeatureExtractor.from_pretrained(safety_model_id)
@@ -72,7 +73,7 @@ def load_model_from_config(config, ckpt, verbose=False):
 def put_watermark(img, wm_encoder=None):
     if wm_encoder is not None:
         img = cv2.cvtColor(np.array(img), cv2.COLOR_RGB2BGR)
-        img = wm_encoder.encode(img, 'dwtDct')
+        img = wm_encoder.encode(img, "dwtDct")
         img = Image.fromarray(img[:, :, ::-1])
     return img
 
@@ -81,7 +82,7 @@ def load_replacement(x):
     try:
         hwc = x.shape
         y = Image.open("assets/rick.jpeg").convert("RGB").resize((hwc[1], hwc[0]))
-        y = (np.array(y)/255.0).astype(x.dtype)
+        y = (np.array(y) / 255.0).astype(x.dtype)
         assert y.shape == x.shape
         return y
     except Exception:
@@ -89,8 +90,12 @@ def load_replacement(x):
 
 
 def check_safety(x_image):
-    safety_checker_input = safety_feature_extractor(numpy_to_pil(x_image), return_tensors="pt")
-    x_checked_image, has_nsfw_concept = safety_checker(images=x_image, clip_input=safety_checker_input.pixel_values)
+    safety_checker_input = safety_feature_extractor(
+        numpy_to_pil(x_image), return_tensors="pt"
+    )
+    x_checked_image, has_nsfw_concept = safety_checker(
+        images=x_image, clip_input=safety_checker_input.pixel_values
+    )
     assert x_checked_image.shape[0] == len(has_nsfw_concept)
     for i in range(len(has_nsfw_concept)):
         if has_nsfw_concept[i]:
@@ -106,29 +111,45 @@ def main():
         type=str,
         nargs="?",
         default="a painting of a virus monster playing guitar",
-        help="the prompt to render"
+        help="the prompt to render",
+    )
+    parser.add_argument(
+        "--background_ref_img_path",
+        type=str,
+        nargs="?",
+        default=None,
+    )
+    parser.add_argument(
+        "--content_ref_img_path",
+        type=str,
+        nargs="?",
+        default=None,
+    )
+    parser.add_argument(
+        "--content_ref_mask_path",
+        type=str,
+        default=None,
     )
     parser.add_argument(
         "--style_ref_img_path",
         type=str,
-        nargs="?",
-        default="./style_images/xingkong.jpg",
+        default=None,
     )
     parser.add_argument(
         "--outdir",
         type=str,
         nargs="?",
         help="dir to write results to",
-        default="outputs/txt2img-samples"
+        default="outputs/txt2img-samples",
     )
     parser.add_argument(
         "--skip_grid",
-        action='store_true',
+        action="store_true",
         help="do not save a grid, only individual samples. Helpful when evaluating lots of samples",
     )
     parser.add_argument(
         "--skip_save",
-        action='store_true',
+        action="store_true",
         help="do not save individual samples. For speed measurements.",
     )
     parser.add_argument(
@@ -139,23 +160,38 @@ def main():
     )
     parser.add_argument(
         "--plms",
-        action='store_true',
+        action="store_true",
         help="use plms sampling",
     )
     parser.add_argument(
         "--dpm_solver",
-        action='store_true',
+        action="store_true",
         help="use dpm_solver sampling",
     )
     parser.add_argument(
         "--laion400m",
-        action='store_true',
+        action="store_true",
         help="uses the LAION400M model",
     )
     parser.add_argument(
+        "--use_cagrad",
+        action="store_true",
+        help="uses cagrad to refine grad",
+    )
+    parser.add_argument(
+        "--use_clip_style_loss",
+        action="store_true",
+        help="uses CLIP to calculate grad for style loss",
+    )
+    parser.add_argument(
         "--fixed_code",
-        action='store_true',
+        action="store_true",
         help="if enabled, uses the same starting code across samples ",
+    )
+    parser.add_argument(
+        "--time_reverse_step",
+        action="store_true",
+        help="if enabled, uses time reverse strategy for good sampling ",
     )
     parser.add_argument(
         "--ddim_eta",
@@ -212,6 +248,24 @@ def main():
         help="unconditional guidance scale: eps = eps(x, empty) + scale * (eps(x, cond) - eps(x, empty))",
     )
     parser.add_argument(
+        "--content_rho_scale",
+        type=float,
+        default=1.0,
+        help="lr for content loss",
+    )
+    parser.add_argument(
+        "--style_rho_scale",
+        type=float,
+        default=1.0,
+        help="lr for style loss",
+    )
+    parser.add_argument(
+        "--cagrad_weight",
+        type=float,
+        default=1.0,
+        help="lr for cagrad",
+    )
+    parser.add_argument(
         "--from-file",
         type=str,
         help="if specified, load prompts from this file",
@@ -239,12 +293,38 @@ def main():
         type=str,
         help="evaluate at this precision",
         choices=["full", "autocast"],
-        default="autocast"
+        default="autocast",
+    )
+    parser.add_argument("--ref_img_path", type=str, default=None)
+    parser.add_argument(
+        "--content_start_steps",
+        type=int,
+        default=20,
+        help="Magic paste content start steps",
     )
     parser.add_argument(
-        "--ref_img_path",
-        type=str,
-        default=None
+        "--content_end_steps",
+        type=int,
+        default=0,
+        help="Magic paste content end steps",
+    )
+    parser.add_argument(
+        "--style_start_steps",
+        type=int,
+        default=20,
+        help="Magic style transfer start steps",
+    )
+    parser.add_argument(
+        "--style_end_steps",
+        type=int,
+        default=0,
+        help="Magic style transfer end steps",
+    )
+    parser.add_argument(
+        "--repeat",
+        type=int,
+        default=5,
+        help="Magic repeat steps",
     )
     opt = parser.parse_args()
 
@@ -259,7 +339,9 @@ def main():
     config = OmegaConf.load(f"{opt.config}")
     model = load_model_from_config(config, f"{opt.ckpt}")
 
-    device = torch.device("cuda:0") if torch.cuda.is_available() else torch.device("cpu")
+    device = (
+        torch.device("cuda:0") if torch.cuda.is_available() else torch.device("cpu")
+    )
     model = model.to(device)
 
     if opt.dpm_solver:
@@ -272,10 +354,12 @@ def main():
     os.makedirs(opt.outdir, exist_ok=True)
     outpath = opt.outdir
 
-    print("Creating invisible watermark encoder (see https://github.com/ShieldMnt/invisible-watermark)...")
+    print(
+        "Creating invisible watermark encoder (see https://github.com/ShieldMnt/invisible-watermark)..."
+    )
     wm = "StableDiffusionV1"
     wm_encoder = WatermarkEncoder()
-    wm_encoder.set_watermark('bytes', wm.encode('utf-8'))
+    wm_encoder.set_watermark("bytes", wm.encode("utf-8"))
 
     batch_size = opt.n_samples
     n_rows = opt.n_rows if opt.n_rows > 0 else batch_size
@@ -297,9 +381,11 @@ def main():
 
     start_code = None
     if opt.fixed_code:
-        start_code = torch.randn([opt.n_samples, opt.C, opt.H // opt.f, opt.W // opt.f], device=device)
+        start_code = torch.randn(
+            [opt.n_samples, opt.C, opt.H // opt.f, opt.W // opt.f], device=device
+        )
 
-    precision_scope = autocast if opt.precision=="autocast" else nullcontext
+    precision_scope = autocast if opt.precision == "autocast" else nullcontext
     # with torch.no_grad():
     with precision_scope("cuda"):
         with model.ema_scope():
@@ -315,54 +401,79 @@ def main():
                     c = model.get_learned_conditioning(prompts)
                     shape = [opt.C, opt.H // opt.f, opt.W // opt.f]
                     
-                    pickle_file_name = (
-                        opt.style_ref_img_path.replace(".png", ".pkl")
-                        .replace(".jpg", ".pkl")
-                        .replace(".jpeg", ".pkl")
-                        .replace(".bmp", ".pkl")
-                        .replace(".JPG", ".pkl")
-                        .replace(".webp", ".pkl")
+                    if opt.background_ref_img_path is not None and os.path.exists(opt.background_ref_img_path):
+                        pickle_file_name = (
+                            opt.background_ref_img_path.replace(".png", ".pkl")
+                            .replace(".jpg", ".pkl")
+                            .replace(".jpeg", ".pkl")
+                            .replace(".bmp", ".pkl")
+                            .replace(".JPG", ".pkl")
+                            .replace(".webp", ".pkl")
+                        )
+                        with open(pickle_file_name, "rb") as f:
+                            pre_computed_data = pickle.load(f)
+                            content_latent_list = pre_computed_data[0]
+                            x_t = pre_computed_data[1]
+                            uncond_embeddings = pre_computed_data[2]
+
+                        np_array = np.load(opt.content_ref_mask_path)
+                        mask = torch.from_numpy(np_array).cuda().unsqueeze(0).unsqueeze(0)
+                        mask = F.interpolate(mask, size=(64, 64), mode="nearest")
+                    else:
+                        uncond_embeddings = uc
+                        content_latent_list = None
+                        mask = None
+                    
+                    samples_ddim, intermediates = sampler.sample(
+                        S=opt.ddim_steps,
+                        conditioning=c,
+                        batch_size=opt.n_samples,
+                        shape=shape,
+                        verbose=False,
+                        unconditional_guidance_scale=opt.scale,
+                        unconditional_conditioning=uncond_embeddings,
+                        eta=opt.ddim_eta,
+                        x_T=start_code,
+                        x0=content_latent_list,
+                        mask=mask,
+                        content_ref_img_path=opt.content_ref_img_path,
+                        content_ref_mask_path=opt.content_ref_mask_path,
+                        style_ref_img_path=opt.style_ref_img_path,
+                        control_detail={
+                            "content_start_steps": opt.content_start_steps,
+                            "content_end_steps": opt.content_end_steps,
+                            "style_start_steps": opt.style_start_steps,
+                            "style_end_steps": opt.style_end_steps,
+                            "repeat": opt.repeat,
+                            "content_rho_scale": opt.content_rho_scale,
+                            "style_rho_scale": opt.style_rho_scale,
+                            "time_reverse_step": opt.time_reverse_step,
+                            "use_cagrad": opt.use_cagrad,
+                            "cagrad_weight": opt.cagrad_weight,
+                            "use_clip_style_loss": opt.use_clip_style_loss
+                        },
                     )
-                    with open(pickle_file_name, "rb") as f:
-                        pre_computed_data = pickle.load(f)
-                        content_latent_list = pre_computed_data[0]
-                        x_t = pre_computed_data[1]
-                        uncond_embeddings = pre_computed_data[2]
-                    
-                    # mask = Image.open("/homesda/yydeng/yydeng/project/Zero-shot-Style-Transfer-via-Attention-Rearrangement-main/input/magic/mask_bg_fg.jpg")
-                    # mask = mask.resize((512//8,512//8),Image.Resampling.BILINEAR)
-                    # mask = transform(mask)[:1,:,:]
-                    # mask = mask.unsqueeze(0).to(device)
-                    
-                    np_array = np.load("/home/hexiangyu/FreeDoM/Content_editing/content/cat_mask.npy")
-                    mask = torch.from_numpy(np_array).cuda().unsqueeze(0).unsqueeze(0)
-                    mask = F.interpolate(mask, size=(64,64), mode='nearest')
-                    
-                    samples_ddim, intermediates = sampler.sample(S=opt.ddim_steps,
-                                                        conditioning=c,
-                                                        batch_size=opt.n_samples,
-                                                        shape=shape,
-                                                        verbose=False,
-                                                        unconditional_guidance_scale=opt.scale,
-                                                        unconditional_conditioning=uncond_embeddings,
-                                                        eta=opt.ddim_eta,
-                                                        x_T=start_code,
-                                                        x0 = content_latent_list,
-                                                        mask = mask,
-                                                        style_ref_img_path=opt.style_ref_img_path)
 
                     x_samples_ddim = model.decode_first_stage(samples_ddim)
-                    x_samples_ddim = torch.clamp((x_samples_ddim + 1.0) / 2.0, min=0.0, max=1.0)
-                    x_samples_ddim = x_samples_ddim.cpu().permute(0, 2, 3, 1).detach().numpy()
+                    x_samples_ddim = torch.clamp(
+                        (x_samples_ddim + 1.0) / 2.0, min=0.0, max=1.0
+                    )
+                    x_samples_ddim = (
+                        x_samples_ddim.cpu().permute(0, 2, 3, 1).detach().numpy()
+                    )
 
                     # x_checked_image, has_nsfw_concept = check_safety(x_samples_ddim)
                     x_checked_image = x_samples_ddim
 
-                    x_checked_image_torch = torch.from_numpy(x_checked_image).permute(0, 3, 1, 2)
+                    x_checked_image_torch = torch.from_numpy(x_checked_image).permute(
+                        0, 3, 1, 2
+                    )
 
                     if not opt.skip_save:
                         for x_sample in x_checked_image_torch:
-                            x_sample = 255. * rearrange(x_sample.cpu().numpy(), 'c h w -> h w c')
+                            x_sample = 255.0 * rearrange(
+                                x_sample.cpu().numpy(), "c h w -> h w c"
+                            )
                             img = Image.fromarray(x_sample.astype(np.uint8))
                             img = put_watermark(img, wm_encoder)
                             img.save(os.path.join(sample_path, f"{base_count:05}.png"))
@@ -374,18 +485,17 @@ def main():
             if not opt.skip_grid:
                 # additionally, save as grid
                 grid = torch.stack(all_samples, 0)
-                grid = rearrange(grid, 'n b c h w -> (n b) c h w')
+                grid = rearrange(grid, "n b c h w -> (n b) c h w")
                 grid = make_grid(grid, nrow=n_rows)
 
                 # to image
-                grid = 255. * rearrange(grid, 'c h w -> h w c').cpu().numpy()
+                grid = 255.0 * rearrange(grid, "c h w -> h w c").cpu().numpy()
                 img = Image.fromarray(grid.astype(np.uint8))
                 img = put_watermark(img, wm_encoder)
-                img.save(os.path.join(outpath, f'grid-{grid_count:04}.png'))
+                img.save(os.path.join(outpath, f"grid-{grid_count:04}.png"))
                 grid_count += 1
 
             toc = time.time()
-
 
 
 if __name__ == "__main__":

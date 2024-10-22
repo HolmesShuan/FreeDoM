@@ -1,3 +1,3 @@
-from .base_filter import LowFilter, VGG16Encoder
+from .base_filter import LowFilter, VGG16ContentEncoder, VGG16StyleEncoder
 
-__all__ = ['LowFilter', 'VGG16Encoder']
+__all__ = ['LowFilter', 'VGG16ContentEncoder', 'VGG16StyleEncoder']
