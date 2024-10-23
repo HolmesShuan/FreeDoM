@@ -139,3 +139,11 @@ Content_editing/content_cropped_img.png
 Content_editing/ref_cropped_img.png
 Content_editing/content_cropped_img.png
 Content_editing/ref_cropped_img.png
+SD_style/outputs/txt2img-samples/samples/*.png
+CN/portrait_magic.txt
+CN/portrait.txt
+SD_style/scribble_magic_clip.txt
+SD_style/scribble_magic_vgg.txt
+SD_style/scribble_magic.txt
+SD_style/scribble_vgg.txt
+SD_style/scribble.txt

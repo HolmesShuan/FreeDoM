@@ -333,9 +333,6 @@ class CLIP(nn.Module):
     def dtype(self):
         return self.visual.conv1.weight.dtype
 
-    def encode_image(self, image):
-        return self.visual(image.type(self.dtype))
-
     def encode_image_with_features(self, x):
         x = x.type(self.dtype)
         x = self.visual.conv1(x)  # shape = [*, width, grid, grid]
@@ -363,6 +360,9 @@ class CLIP(nn.Module):
             x = x @ self.visual.proj
 
         return x, features
+    
+    def encode_image(self, image):
+        return self.visual(image.type(self.dtype))
 
     def encode_text(self, text):
         x = self.token_embedding(text).type(self.dtype)  # [batch_size, n_ctx, d_model]
@@ -403,7 +403,8 @@ class CLIP(nn.Module):
         text_features = text_features / text_features.norm(dim=-1, keepdim=True)
 
         # cosine similarity as logits
-        logit_scale = self.logit_scale.exp()
+        # logit_scale = self.logit_scale.exp()
+        logit_scale = 1.0
         logits_per_image = logit_scale * image_features @ text_features.t()
         logits_per_text = logit_scale * text_features @ image_features.t()
 

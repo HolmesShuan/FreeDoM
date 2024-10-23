@@ -1,15 +1,14 @@
-# Baseline : Pose Condition + ID 1 Condition
-# CUDA_VISIBLE_DEVICES=2 python pose2image.py --seed 3737 --timesteps 100 --prompt "two young men, realistic photo" --pose_ref "./test_imgs/pose4.jpg" --id_ref "./test_imgs/id3.png" --output_prefix "baseline_portrait_photo" > portrait.txt
+# Baseline : ControlNet Pose Condition + ID 1 Condition
+# CUDA_VISIBLE_DEVICES=2 python pose2image.py --seed 3737 --timesteps 100 --prompt "a young man, realistic photo" --pose_ref "./test_imgs/pose4.jpg" --id_ref "./test_imgs/id3.png" --output_prefix "baseline_portrait_photo" > portrait.txt
 
-# Magic : Pose Condition + ID 1 Condition
-CUDA_VISIBLE_DEVICES=2 python pose2image.py --seed 3737 --timesteps 100 --prompt "two young men, realistic photo" --pose_ref "./test_imgs/pose4.jpg" --id_ref "./test_imgs/id3.png" --use_magic --output_prefix "magic_portrait_photo" --rho_scale 0.08 --start_steps 60 --end_steps 0 > portrait_magic.txt
+# Magic : ControlNet Pose Condition + ID 1 Condition
+CUDA_VISIBLE_DEVICES=2 python pose2image.py --seed 3737 --timesteps 100 --prompt "a young man, realistic photo" --pose_ref "./test_imgs/pose4.jpg" --id_ref "./test_imgs/id3.png" --use_magic --output_prefix "magic_portrait_photo" --rho_scale 0.08 --start_steps 100 --end_steps 0 --time_reverse_step > portrait_magic.txt
 
-# Baseline : Pose Condition + ID 1 Condition + ID 2 Condition
+# Baseline : ControlNet Pose Condition + ID 1 Condition + ID 2 Condition
 # CUDA_VISIBLE_DEVICES=2 python pose2image.py --seed 3737 --timesteps 100 --prompt "two young men, realistic photo" --pose_ref "./test_imgs/couple_v2.jpeg" --id_ref "./test_imgs/id3.png" --id_ref_2nd "./test_imgs/id7.jpg" --output_prefix "baseline_group_photo" > couple.txt
 
-# Magic : Pose Condition + ID 1 Condition + ID 2 Condition
+# Magic : ControlNet Pose Condition + ID 1 Condition + ID 2 Condition
 # CUDA_VISIBLE_DEVICES=2 python pose2image.py --seed 3737 --timesteps 100 --prompt "two young men, realistic photo" --pose_ref "./test_imgs/couple_v2.jpeg" --id_ref "./test_imgs/id3.png" --id_ref_2nd "./test_imgs/id7.jpg" --use_cagrad --cagrad_weight 0.08 --use_magic --output_prefix "magic_group_photo" > couple_magic.txt
-
 
 
 

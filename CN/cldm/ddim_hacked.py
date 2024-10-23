@@ -396,7 +396,7 @@ class DDIMSampler(object):
     def p_sample_ddim_style(self, x, c, t, index, repeat_noise=False, use_original_steps=False, quantize_denoised=False,
                       temperature=1., noise_dropout=0., score_corrector=None, corrector_kwargs=None,
                       unconditional_guidance_scale=1., unconditional_conditioning=None,
-                      dynamic_threshold=None):
+                      dynamic_threshold=None, detail_control=dict()):
         b, *_, device = *x.shape, x.device
 
         x.requires_grad = True
@@ -409,8 +409,6 @@ class DDIMSampler(object):
 
         start = 70
         end = 30
-        start = 70
-        end = 0
         if self.no_freedom:
             start = end = -10
 
@@ -447,10 +445,7 @@ class DDIMSampler(object):
             # current prediction for x_0
             if self.model.parameterization != "v":
                 pred_x0 = (x - sqrt_one_minus_at * e_t) / a_t.sqrt()
-                print('[Debug] Manually calculate pred_x0')
-                # pred_x0 = (x + sqrt_one_minus_at * sqrt_one_minus_at * e_t) / a_t.sqrt()
             else:
-                print('[Debug] Model predict pred_x0')
                 pred_x0 = self.model.predict_start_from_z_and_v(x, t, model_output)
 
             if quantize_denoised:
@@ -461,12 +456,8 @@ class DDIMSampler(object):
 
             if start > index >= end:
                 D_x0_t = self.model.decode_first_stage(pred_x0)
-                # residual = self.image_encoder.get_gram_matrix_residual(D_x0_t)
-                # norm = torch.linalg.norm(residual)
-                # norm_grad = torch.autograd.grad(outputs=norm, inputs=x)[0]
-                # print('[Debug] Style Loss : ', norm.cpu().item())
                 style_loss = self.image_encoder.get_gram_matrix_style_loss(D_x0_t)
-                print('[Debug] Style Loss : ', style_loss.cpu().item())
+                # print('[Debug] Style Loss : ', style_loss.cpu().item())
                 norm_grad = torch.autograd.grad(outputs=style_loss, inputs=x)[0]
                 rho = (correction * correction).mean().sqrt().item() * unconditional_guidance_scale 
                 rho = rho / (norm_grad * norm_grad).mean().sqrt().item() * 0.2
@@ -482,24 +473,28 @@ class DDIMSampler(object):
             
             x = beta_t.sqrt() * x_prev + (1 - beta_t).sqrt() * noise_like(x.shape, device, repeat_noise)
 
+        with torch.no_grad():
+            x0 = self.model.decode_first_stage(x_prev)
+            style_loss = self.image_encoder.get_gram_matrix_style_loss(x0)
+            print('[Debug] Style Loss : ', style_loss.cpu().item())
+        
         return x_prev.detach(), pred_x0.detach()
     
-    def p_sample_ddim_style_magic(self, x, total_steps, start_step, end_step, lr, c, t, index, repeat_noise=False, use_original_steps=False, quantize_denoised=False,
+    def p_sample_ddim_style_magic(self, x, c, t, index, repeat_noise=False, use_original_steps=False, quantize_denoised=False,
                       temperature=1., noise_dropout=0., score_corrector=None, corrector_kwargs=None,
                       unconditional_guidance_scale=1., unconditional_conditioning=None,
-                      dynamic_threshold=None):
+                      dynamic_threshold=None, detail_control=dict()):
         b, *_, device = *x.shape, x.device
 
         x.requires_grad = True
         self.model.requires_grad_(True)
 
-        # if 70 > index >= 40:
-        #     repeat = 3
-        # else:
-        repeat = 3
+        repeat = detail_control['repeat'] if 'repeat' in detail_control else 1
+        start = detail_control['start_steps'] if 'start_steps' in detail_control else 60
+        end = detail_control['end_steps'] if 'end_steps' in detail_control else 0
+        time_reverse_step = detail_control['time_reverse_step'] if 'time_reverse_step' in detail_control else False
+        rho_scale = detail_control['rho_scale'] if 'rho_scale' in detail_control else 0.08
         
-        start = start_step # int(float(total_steps) * start_ratio) # 100
-        end = end_step # int(float(total_steps) * end_ratio) # 100
         if self.no_freedom:
             start = end = -10
 
@@ -507,7 +502,6 @@ class DDIMSampler(object):
             if unconditional_conditioning is None or unconditional_guidance_scale == 1.:
                 model_output = self.model.apply_model(x, t, c)
             else:
-                # print('[Debug] unconditional_conditioning is not None')
                 model_t = self.model.apply_model(x, t, c)
                 model_uncond = self.model.apply_model(x, t, unconditional_conditioning)
                 correction = model_t - model_uncond
@@ -521,8 +515,7 @@ class DDIMSampler(object):
             if score_corrector is not None:
                 assert self.model.parameterization == "eps", 'not implemented'
                 e_t = score_corrector.modify_score(self.model, e_t, x, t, c, **corrector_kwargs)
-                
-            # print('[Debug] use_original_steps is ', use_original_steps)
+            
             alphas = self.model.alphas_cumprod if use_original_steps else self.ddim_alphas
             alphas_prev = self.model.alphas_cumprod_prev if use_original_steps else self.ddim_alphas_prev
             sqrt_one_minus_alphas = self.model.sqrt_one_minus_alphas_cumprod if use_original_steps else self.ddim_sqrt_one_minus_alphas
@@ -551,9 +544,7 @@ class DDIMSampler(object):
             c3 = (1 - a_prev) * (1 - a_t / a_prev) / (1 - a_t)
             c3 = (c3.log() * 0.5).exp()
             x_prev = c1 * pred_x0 + c2 * x + c3 * torch.randn_like(pred_x0)
-            
-            # x_prev = beta_t.sqrt() * x_prev + (1 - beta_t).sqrt() * noise_like(x.shape, device, repeat_noise)
-            
+             
             # calculate x0|x,c1
             if self.model.parameterization != "v":
                 x_prev_given_c1 = x_prev.clone() # .detach()
@@ -562,41 +553,29 @@ class DDIMSampler(object):
             else:
                 pred_x0_given_c1 = self.model.predict_start_from_z_and_v(x_prev_given_c1, t, model_output)
 
-            # if quantize_denoised:
-            #     pred_x0_given_c1, _, *_ = self.model.first_stage_model.quantize(pred_x0_given_c1)
-            
             if start > index >= end:
-                # D_x0_t = self.model.decode_first_stage(pred_x0_given_c1)
-                # residual = self.image_encoder.get_gram_matrix_residual(D_x0_t)
-                # face_id_loss = torch.linalg.norm(residual)
-                # face_id_loss =  residual.abs().mean()
                 D_x0_t = self.model.decode_first_stage(pred_x0_given_c1)
                 style_loss = self.image_encoder.get_gram_matrix_style_loss(D_x0_t)
-                print('[Debug] Style Loss : ', style_loss.cpu().item())
+                # print('[Debug] Style Loss : ', style_loss.cpu().item())
                 style_loss_grad = torch.autograd.grad(outputs=style_loss, inputs=x_prev_given_c1)[0]
-                # face_id_loss_grad = torch.autograd.grad(outputs=face_id_loss, inputs=x_prev_given_c1)[0]
                 correction_1d = correction.view(-1)
                 correction_1d_l2_norm = torch.norm(correction_1d, p=2)
                 style_loss_grad_1d = style_loss_grad.view(-1)
                 style_loss_grad_1d_norm = torch.norm(style_loss_grad_1d, p=2)
                 rho = correction_1d_l2_norm.item() * unconditional_guidance_scale
-                rho = rho / style_loss_grad_1d_norm.item() * lr
-                # print('[Debug] rho : ', rho)
-                
-            if start > index >= end:
+                rho = rho / style_loss_grad_1d_norm.item()
                 gradient_prod = torch.dot(x_prev.view(-1), rho * style_loss_grad_1d.detach().view(-1))
                 style_loss_magic_grad = torch.autograd.grad(outputs=gradient_prod, inputs=x)[0]
-                with torch.no_grad():
-                    style_loss_grad_vec = style_loss_magic_grad.flatten()
-                    engery_func_grad_vec = e_t.flatten()
-                    cos_sim = F.cosine_similarity(style_loss_grad_vec, engery_func_grad_vec, dim=0)
-                    print('[INFO] Cos Sim : ', cos_sim.cpu().item())
-                    # if cos_sim < 0:
-                    #     x_prev = x_prev - style_loss_magic_grad.detach()
-                x_prev = x_prev - style_loss_magic_grad.detach()
+                x_prev = x_prev - style_loss_magic_grad.detach() * rho_scale
             
-            # x = beta_t.sqrt() * x_prev + (1 - beta_t).sqrt() * noise_like(x.shape, device, repeat_noise)
-
+            if time_reverse_step:
+                x = beta_t.sqrt() * x_prev + (1 - beta_t).sqrt() * noise_like(x.shape, device, repeat_noise)
+        
+        with torch.no_grad():
+            x0 = self.model.decode_first_stage(x_prev)
+            style_loss = self.image_encoder.get_gram_matrix_style_loss(x0)
+            print('[Debug] Style Loss : ', style_loss.cpu().item())
+            
         return x_prev.detach(), pred_x0.detach()
     
 
@@ -752,12 +731,13 @@ class DDIMSampler(object):
             x = beta_t.sqrt() * x_prev + (1 - beta_t).sqrt() * noise_like(x.shape, device, repeat_noise)
 
         with torch.no_grad():
-            warp_D_x0_t = F.grid_sample(x_prev, self.grid, align_corners=True)
+            x0 = self.model.decode_first_stage(x_prev)
+            warp_D_x0_t = F.grid_sample(x0, self.grid, align_corners=True)
             residual = self.idloss.get_residual(warp_D_x0_t)
             face_id_loss = torch.linalg.norm(residual)
             print('[INFO] 1st. Face loss : ', face_id_loss.cpu().item())
             if self.grid_2nd is not None:
-                warp_D_x0_t_2nd = F.grid_sample(x_prev, self.grid_2nd, align_corners=True)
+                warp_D_x0_t_2nd = F.grid_sample(x0, self.grid_2nd, align_corners=True)
                 residual_2nd = self.idloss.get_residual(warp_D_x0_t_2nd, dual_sup=True)
                 face_id_loss_2nd = torch.linalg.norm(residual_2nd)
                 print('[INFO] 2nd. Face loss : ', face_id_loss_2nd.cpu().item())
@@ -780,6 +760,7 @@ class DDIMSampler(object):
         cagrad_weight = detail_control['cagrad_weight'] if 'cagrad_weight' in detail_control else 0.08
         time_reverse_step = detail_control['time_reverse_step'] if 'time_reverse_step' in detail_control else False
         use_cagrad = detail_control['use_cagrad'] if 'use_cagrad' in detail_control else False
+        per_channel_cagrad = detail_control['per_channel_cagrad'] if 'per_channel_cagrad' in detail_control else True
         rho_scale = detail_control['rho_scale'] if 'rho_scale' in detail_control else 0.08
         
         if self.no_freedom:
@@ -863,7 +844,7 @@ class DDIMSampler(object):
             
             if start > index >= end:
                 D_x0_t = self.model.decode_first_stage(pred_x0_given_c1)
-                print('[Debug] D_x0_t.shape : ', D_x0_t.shape)
+                # print('[Debug] D_x0_t.shape : ', D_x0_t.shape)
                 warp_D_x0_t = F.grid_sample(D_x0_t, self.grid, align_corners=True)
                 residual = self.idloss.get_residual(warp_D_x0_t)
                 face_id_loss = torch.linalg.norm(residual)
@@ -880,7 +861,7 @@ class DDIMSampler(object):
                 
                 if self.grid_2nd is not None:
                     D_x0_t_2nd = self.model.decode_first_stage(pred_x0_given_c1_2nd)
-                    print('[Debug] D_x0_t_2nd.shape : ', D_x0_t_2nd.shape)
+                    # print('[Debug] D_x0_t_2nd.shape : ', D_x0_t_2nd.shape)
                     warp_D_x0_t_2nd = F.grid_sample(D_x0_t_2nd, self.grid_2nd, align_corners=True)
                     residual_2nd = self.idloss.get_residual(warp_D_x0_t_2nd, dual_sup=True)
                     face_id_loss_2nd = torch.linalg.norm(residual_2nd)
@@ -896,24 +877,32 @@ class DDIMSampler(object):
                     if use_cagrad:
                         grad_0 = face_id_loss_magic_grad.detach()
                         grad_1 = face_id_loss_magic_grad_2nd.detach()
-                        cagrad_grad = cagrad([grad_0, grad_1]) * cagrad_weight
+                        if per_channel_cagrad:
+                            channel_num = grad_0.size(1)
+                            cagrad_grad = []
+                            for k in range(channel_num):
+                                cagrad_grad.append(cagrad([grad_0[:, k, :, :], grad_1[:, k, :, :]]))
+                            cagrad_grad = torch.stack(cagrad_grad, dim=1)
+                        else:
+                            cagrad_grad = cagrad([grad_0, grad_1])
+                        cagrad_grad = cagrad_grad * cagrad_weight
                         x_prev = x_prev - cagrad_grad 
                     else:
                         x_prev = x_prev - (face_id_loss_magic_grad + face_id_loss_magic_grad_2nd) * rho_scale
                 else:
                     x_prev = x_prev - face_id_loss_magic_grad * rho_scale
-            else:
-                if time_reverse_step:
-                    x = beta_t.sqrt() * x_prev + (1 - beta_t).sqrt() * noise_like(x.shape, device, repeat_noise)
+            
+            if time_reverse_step:
+                x = beta_t.sqrt() * x_prev + (1 - beta_t).sqrt() * noise_like(x.shape, device, repeat_noise)
 
         with torch.no_grad():
-            print('[Debug] x_prev.shape : ', x_prev.shape)
-            warp_D_x0_t = F.grid_sample(x_prev.squeeze, self.grid, align_corners=True)
+            x0 = self.model.decode_first_stage(x_prev)
+            warp_D_x0_t = F.grid_sample(x0, self.grid, align_corners=True)
             residual = self.idloss.get_residual(warp_D_x0_t)
             face_id_loss = torch.linalg.norm(residual)
             print('[INFO] 1st. Face loss : ', face_id_loss.cpu().item())
             if self.grid_2nd is not None:
-                warp_D_x0_t_2nd = F.grid_sample(x_prev.squeeze(0), self.grid_2nd, align_corners=True)
+                warp_D_x0_t_2nd = F.grid_sample(x0, self.grid_2nd, align_corners=True)
                 residual_2nd = self.idloss.get_residual(warp_D_x0_t_2nd, dual_sup=True)
                 face_id_loss_2nd = torch.linalg.norm(residual_2nd)
                 print('[INFO] 2nd. Face loss : ', face_id_loss_2nd.cpu().item())

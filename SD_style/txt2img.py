@@ -134,6 +134,11 @@ def main():
         help="do not save individual samples. For speed measurements.",
     )
     parser.add_argument(
+        "--use_magic",
+        action='store_true',
+        help="use magic algorithm or baseline method",
+    )
+    parser.add_argument(
         "--ddim_steps",
         type=int,
         default=50,
@@ -248,6 +253,40 @@ def main():
         type=str,
         default=None
     )
+    parser.add_argument(
+        "--time_reverse_step",
+        action="store_true",
+        help="if enabled, uses time reverse strategy for good sampling ",
+    )
+    parser.add_argument(
+        "--style_rho_scale",
+        type=float,
+        default=1.0,
+        help="lr for style loss",
+    )
+    parser.add_argument(
+        "--style_start_steps",
+        type=int,
+        default=20,
+        help="Magic style transfer start steps",
+    )
+    parser.add_argument(
+        "--style_end_steps",
+        type=int,
+        default=0,
+        help="Magic style transfer end steps",
+    )
+    parser.add_argument(
+        "--repeat",
+        type=int,
+        default=5,
+        help="Magic repeat steps",
+    )
+    parser.add_argument(
+        "--use_clip_style_loss",
+        action="store_true",
+        help="uses CLIP to calculate grad for style loss",
+    )
     opt = parser.parse_args()
 
     if opt.laion400m:
@@ -325,7 +364,17 @@ def main():
                                                         unconditional_conditioning=uc,
                                                         eta=opt.ddim_eta,
                                                         x_T=start_code,
-                                                        style_ref_img_path=opt.style_ref_img_path)
+                                                        style_ref_img_path=opt.style_ref_img_path,
+                                                        control_detail={
+                                                            "style_start_steps": opt.style_start_steps,
+                                                            "style_end_steps": opt.style_end_steps,
+                                                            "repeat": opt.repeat,
+                                                            "style_rho_scale": opt.style_rho_scale,
+                                                            "time_reverse_step": opt.time_reverse_step,
+                                                            "use_clip_style_loss": opt.use_clip_style_loss,
+                                                            "use_magic": opt.use_magic,
+                                                            "prompt": opt.prompt
+                                                        },)
 
                     x_samples_ddim = model.decode_first_stage(samples_ddim)
                     x_samples_ddim = torch.clamp((x_samples_ddim + 1.0) / 2.0, min=0.0, max=1.0)

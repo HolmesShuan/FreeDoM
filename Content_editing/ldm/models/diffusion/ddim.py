@@ -301,25 +301,29 @@ class DDIMSampler(object):
                 assert x0 is not None
                 tt = x0[-1 - i].to(device)
                 # img_orig = self.model.q_sample(x0, ts)  # TODO: deterministic forward pass?
+                tt = F.interpolate(tt, size=(img.size(2), img.size(3)), mode="bicubic")
                 img = img * mask + (1.0 - mask) * tt
 
-            outs = self.p_sample_ddim_magic_dual_conditional(
-                img,
-                cond,
-                ts,
-                index=index,
-                use_original_steps=ddim_use_original_steps,
-                quantize_denoised=quantize_denoised,
-                temperature=temperature,
-                noise_dropout=noise_dropout,
-                score_corrector=score_corrector,
-                corrector_kwargs=corrector_kwargs,
-                unconditional_guidance_scale=unconditional_guidance_scale,
-                unconditional_conditioning=unconditional_conditioning,
-                i=i if mask is not None else None,
-                control_detail=control_detail,
-            )
-
+            if control_detail['use_second_order_alg']:
+                sampling_strategy = self.p_sample_ddim_magic_dual_conditional_second_order
+            else:
+                sampling_strategy = self.p_sample_ddim_magic_dual_conditional
+            outs = sampling_strategy(
+                    img,
+                    cond,
+                    ts,
+                    index=index,
+                    use_original_steps=ddim_use_original_steps,
+                    quantize_denoised=quantize_denoised,
+                    temperature=temperature,
+                    noise_dropout=noise_dropout,
+                    score_corrector=score_corrector,
+                    corrector_kwargs=corrector_kwargs,
+                    unconditional_guidance_scale=unconditional_guidance_scale,
+                    unconditional_conditioning=unconditional_conditioning,
+                    i=i if mask is not None else None,
+                    control_detail=control_detail,
+                )
             img, pred_x0 = outs
 
             count1 += 1
@@ -530,314 +534,6 @@ class DDIMSampler(object):
 
         return x_prev.detach(), pred_x0.detach()
 
-    # def p_sample_ddim_magic_dual_conditional(
-    #     self,
-    #     x,
-    #     c,
-    #     t,
-    #     index,
-    #     repeat_noise=False,
-    #     use_original_steps=False,
-    #     quantize_denoised=False,
-    #     temperature=1.0,
-    #     noise_dropout=0.0,
-    #     score_corrector=None,
-    #     corrector_kwargs=None,
-    #     unconditional_guidance_scale=1.0,
-    #     unconditional_conditioning=None,
-    #     i=None,
-    #     control_detail=dict(),
-    # ):
-    #     b, *_, device = *x.shape, x.device
-
-    #     x.requires_grad = True
-    #     self.model.requires_grad_(True)
-
-    #     # hyperparameters:
-    #     # "repeat" is the number for time-travel strategy;
-    #     # "start" and "end" are the end points for the range of guidance;
-    #     content_start = (
-    #         control_detail["content_start_steps"]
-    #         if "content_start_steps" in control_detail
-    #         else 20
-    #     )
-    #     content_end = (
-    #         control_detail["content_end_steps"]
-    #         if "content_end_steps" in control_detail
-    #         else 0
-    #     )
-    #     style_start = (
-    #         control_detail["style_start_steps"]
-    #         if "style_start_steps" in control_detail
-    #         else 20
-    #     )
-    #     style_end = (
-    #         control_detail["style_end_steps"]
-    #         if "style_end_steps" in control_detail
-    #         else 0
-    #     )
-    #     repeat = control_detail["repeat"] if "repeat" in control_detail else 5
-    #     time_reverse_step = (
-    #         control_detail["time_reverse_step"]
-    #         if "time_reverse_step" in control_detail
-    #         else False
-    #     )
-    #     content_rho_scale = (
-    #         control_detail["content_rho_scale"]
-    #         if "content_rho_scale" in control_detail
-    #         else 1.0
-    #     )
-    #     style_rho_scale = (
-    #         control_detail["style_rho_scale"]
-    #         if "style_rho_scale" in control_detail
-    #         else 1.0
-    #     )
-    #     use_cagrad = (
-    #         control_detail["use_cagrad"] if "use_cagrad" in control_detail else False
-    #     )
-    #     cagrad_weight = (
-    #         control_detail["cagrad_weight"]
-    #         if "cagrad_weight" in control_detail
-    #         else 1.0
-    #     )
-    #     use_clip_style_loss = (
-    #         control_detail["use_clip_style_loss"]
-    #         if "use_clip_style_loss" in control_detail
-    #         else False
-    #     )
-
-    #     for j in range(repeat):
-    #         x = x.detach().requires_grad_(True)
-    #         if style_start > index >= style_end:
-    #             x_2nd = x.clone()
-
-    #         if (
-    #             unconditional_conditioning is None
-    #             or unconditional_guidance_scale == 1.0
-    #         ):
-    #             if style_start > index >= style_end:
-    #                 e_t_2nd = self.model.apply_model(x_2nd, t, c)
-    #             e_t = self.model.apply_model(x, t, c)
-    #         else:
-    #             x_in = torch.cat([x] * 2)
-    #             t_in = torch.cat([t] * 2)
-    #             c_in = (
-    #                 torch.cat(
-    #                     [unconditional_conditioning[i].expand(*c.shape).to(device), c]
-    #                 )
-    #                 if i is not None
-    #                 else torch.cat([unconditional_conditioning, c])
-    #             )
-    #             e_t_uncond, e_t = self.model.apply_model(x_in, t_in, c_in).chunk(2)
-    #             correction = e_t - e_t_uncond
-    #             e_t = e_t_uncond + unconditional_guidance_scale * correction
-
-    #             if style_start > index >= style_end:
-    #                 x_in_2nd = torch.cat([x_2nd] * 2)
-    #                 t_in = torch.cat([t] * 2)
-    #                 c_in = (
-    #                     torch.cat(
-    #                         [
-    #                             unconditional_conditioning[i]
-    #                             .expand(*c.shape)
-    #                             .to(device),
-    #                             c,
-    #                         ]
-    #                     )
-    #                     if i is not None
-    #                     else torch.cat([unconditional_conditioning, c])
-    #                 )
-    #                 e_t_uncond_2nd, e_t_2nd = self.model.apply_model(
-    #                     x_in_2nd, t_in, c_in
-    #                 ).chunk(2)
-    #                 correction_2nd = e_t_2nd - e_t_uncond_2nd
-    #                 e_t_2nd = (
-    #                     e_t_uncond_2nd + unconditional_guidance_scale * correction_2nd
-    #                 )
-
-    #         if score_corrector is not None:
-    #             assert self.model.parameterization == "eps"
-    #             e_t = score_corrector.modify_score(
-    #                 self.model, e_t, x, t, c, **corrector_kwargs
-    #             )
-
-    #         alphas = (
-    #             self.model.alphas_cumprod if use_original_steps else self.ddim_alphas
-    #         )
-    #         alphas_prev = (
-    #             self.model.alphas_cumprod_prev
-    #             if use_original_steps
-    #             else self.ddim_alphas_prev
-    #         )
-    #         sqrt_one_minus_alphas = (
-    #             self.model.sqrt_one_minus_alphas_cumprod
-    #             if use_original_steps
-    #             else self.ddim_sqrt_one_minus_alphas
-    #         )
-    #         sigmas = (
-    #             self.model.ddim_sigmas_for_original_num_steps
-    #             if use_original_steps
-    #             else self.ddim_sigmas
-    #         )
-    #         sigmas = self.ddim_sigmas
-
-    #         a_t = torch.full((b, 1, 1, 1), alphas[index], device=device)
-    #         a_prev = torch.full((b, 1, 1, 1), alphas_prev[index], device=device)
-    #         beta_t = a_t / a_prev
-    #         sigma_t = torch.full((b, 1, 1, 1), sigmas[index], device=device)
-    #         sqrt_one_minus_at = torch.full(
-    #             (b, 1, 1, 1), sqrt_one_minus_alphas[index], device=device
-    #         )
-
-    #         # current prediction for x_0
-    #         pred_x0 = (x - sqrt_one_minus_at * e_t) / a_t.sqrt()
-    #         c1 = a_prev.sqrt() * (1 - a_t / a_prev) / (1 - a_t)
-    #         c2 = (a_t / a_prev).sqrt() * (1 - a_prev) / (1 - a_t)
-    #         c3 = (1 - a_prev) * (1 - a_t / a_prev) / (1 - a_t)
-    #         c3 = (c3.log() * 0.5).exp()
-    #         x_prev = c1 * pred_x0 + c2 * x + c3 * torch.randn_like(pred_x0)
-
-    #         if style_start > index >= style_end:
-    #             pred_x0_2nd = (x_2nd - sqrt_one_minus_at * e_t_2nd) / a_t.sqrt()
-    #             x_prev_2nd = (
-    #                 c1 * pred_x0_2nd + c2 * x_2nd + c3 * torch.randn_like(pred_x0)
-    #             )
-    #             # calculate x0|x,c1
-    #             x_prev_given_c1_2nd = x_prev_2nd.clone()  # .detach()
-
-    #         if content_start > index >= content_end:
-    #             # calculate x0|x,c1
-    #             x_prev_given_c1 = x_prev.clone()  # .detach()
-    #             if (
-    #                 unconditional_conditioning is None
-    #                 or unconditional_guidance_scale == 1.0
-    #             ):
-    #                 e_t_given_c1 = self.model.apply_model(x_prev_given_c1, t, c)
-    #             else:
-    #                 x_in = torch.cat([x_prev_given_c1] * 2)
-    #                 t_in = torch.cat([t] * 2)
-    #                 c_in = (
-    #                     torch.cat(
-    #                         [
-    #                             unconditional_conditioning[i]
-    #                             .expand(*c.shape)
-    #                             .to(device),
-    #                             c,
-    #                         ]
-    #                     )
-    #                     if i is not None
-    #                     else torch.cat([unconditional_conditioning, c])
-    #                 )
-    #                 e_t_uncond, e_t = self.model.apply_model(x_in, t_in, c_in).chunk(2)
-    #                 # unconditional_guidance_scale = 5.0
-    #                 correction = e_t - e_t_uncond
-    #                 e_t_given_c1 = (
-    #                     e_t_uncond + unconditional_guidance_scale * correction
-    #                 )
-
-    #             pred_x0_given_c1 = (
-    #                 x_prev_given_c1 - sqrt_one_minus_at * e_t_given_c1
-    #             ) / a_t.sqrt()
-
-    #             D_x0_t = self.model.decode_first_stage(pred_x0_given_c1)
-    #             residual = self.vgg_content_filter.get_content_residual(D_x0_t)
-    #             content_loss = torch.linalg.norm(residual)
-    #             print("[Debug] Content Loss : ", content_loss.cpu().item(), flush=True)
-    #             content_loss_grad = torch.autograd.grad(
-    #                 outputs=content_loss, inputs=x_prev_given_c1
-    #             )[0]
-    #             correction_1d = correction.view(-1)
-    #             correction_1d_l2_norm = torch.norm(correction_1d, p=2)
-    #             content_loss_grad_1d = content_loss_grad.view(-1)
-    #             content_loss_grad_1d_norm = torch.norm(content_loss_grad_1d, p=2)
-    #             rho = correction_1d_l2_norm.item() * unconditional_guidance_scale
-    #             rho = rho / content_loss_grad_1d_norm.item()
-    #             gradient_prod = torch.dot(
-    #                 x_prev.view(-1), rho * content_loss_grad_1d.detach().view(-1)
-    #             )
-    #             content_loss_magic_grad = torch.autograd.grad(
-    #                 outputs=gradient_prod, inputs=x
-    #             )[0]
-    #             x_prev = x_prev - content_loss_magic_grad.detach() * content_rho_scale
-
-    #         if style_start > index >= style_end:
-    #             if (
-    #                 unconditional_conditioning is None
-    #                 or unconditional_guidance_scale == 1.0
-    #             ):
-    #                 e_t_given_c1_2nd = self.model.apply_model(x_prev_given_c1_2nd, t, c)
-    #             else:
-    #                 x_in = torch.cat([x_prev_given_c1_2nd] * 2)
-    #                 t_in = torch.cat([t] * 2)
-    #                 c_in = (
-    #                     torch.cat(
-    #                         [
-    #                             unconditional_conditioning[i]
-    #                             .expand(*c.shape)
-    #                             .to(device),
-    #                             c,
-    #                         ]
-    #                     )
-    #                     if i is not None
-    #                     else torch.cat([unconditional_conditioning, c])
-    #                 )
-    #                 e_t_uncond, e_t = self.model.apply_model(x_in, t_in, c_in).chunk(2)
-    #                 # unconditional_guidance_scale = 5.0
-    #                 correction = e_t - e_t_uncond
-    #                 e_t_given_c1_2nd = (
-    #                     e_t_uncond + unconditional_guidance_scale * correction
-    #                 )
-
-    #             pred_x0_given_c1_2nd = (
-    #                 x_prev_given_c1_2nd - sqrt_one_minus_at * e_t_given_c1_2nd
-    #             ) / a_t.sqrt()
-
-    #             D_x0_t_2nd = self.model.decode_first_stage(pred_x0_given_c1_2nd)
-    #             if use_clip_style_loss:
-    #                 residual = self.clip_style_encoder.get_gram_matrix_residual(
-    #                     D_x0_t_2nd
-    #                 )
-    #                 style_loss = torch.linalg.norm(residual)
-    #             else:
-    #                 style_loss = self.vgg_style_filter.get_gram_matrix_style_loss(
-    #                     D_x0_t_2nd
-    #                 )
-    #             print("[Debug] Style Loss : ", style_loss.cpu().item(), flush=True)
-    #             style_loss_grad = torch.autograd.grad(
-    #                 outputs=style_loss, inputs=x_prev_given_c1_2nd
-    #             )[0]
-    #             correction_1d = correction.view(-1)
-    #             correction_1d_l2_norm = torch.norm(correction_1d, p=2)
-    #             style_loss_grad_1d = style_loss_grad.view(-1)
-    #             style_loss_grad_1d_norm = torch.norm(style_loss_grad_1d, p=2)
-    #             rho = correction_1d_l2_norm.item() * unconditional_guidance_scale
-    #             rho = rho / style_loss_grad_1d_norm.item()
-    #             gradient_prod = torch.dot(
-    #                 x_prev_2nd.view(-1), rho * style_loss_grad_1d.detach().view(-1)
-    #             )
-    #             style_loss_magic_grad = torch.autograd.grad(
-    #                 outputs=gradient_prod, inputs=x_2nd
-    #             )[0]
-    #             x_prev = x_prev - style_loss_magic_grad.detach() * style_rho_scale
-
-    #             if use_cagrad:
-    #                 grad_0 = content_loss_magic_grad.detach() * content_rho_scale
-    #                 grad_1 = style_loss_magic_grad.detach() * style_rho_scale
-    #                 cagrad_grad = cagrad([grad_0, grad_1]) * cagrad_weight
-    #                 x_prev = x_prev - cagrad_grad + grad_0 + grad_1
-
-    #         if content_start > index >= content_end or style_start > index >= style_end:
-    #             if time_reverse_step:
-    #                 x = beta_t.sqrt() * x_prev + (1 - beta_t).sqrt() * noise_like(
-    #                     x.shape, device, repeat_noise
-    #                 )
-    #         else:
-    #             x = beta_t.sqrt() * x_prev + (1 - beta_t).sqrt() * noise_like(
-    #                 x.shape, device, repeat_noise
-    #             )
-
-    #     return x_prev.detach(), pred_x0.detach()
-
     def p_sample_ddim_magic_dual_conditional(
         self,
         x,
@@ -902,6 +598,317 @@ class DDIMSampler(object):
         )
         use_cagrad = (
             control_detail["use_cagrad"] if "use_cagrad" in control_detail else False
+        )
+        cagrad_weight = (
+            control_detail["cagrad_weight"]
+            if "cagrad_weight" in control_detail
+            else 1.0
+        )
+        use_clip_style_loss = (
+            control_detail["use_clip_style_loss"]
+            if "use_clip_style_loss" in control_detail
+            else False
+        )
+
+        for j in range(repeat):
+            x = x.detach().requires_grad_(True)
+            if style_start > index >= style_end:
+                x_2nd = x.clone()
+
+            if (
+                unconditional_conditioning is None
+                or unconditional_guidance_scale == 1.0
+            ):
+                if style_start > index >= style_end:
+                    e_t_2nd = self.model.apply_model(x_2nd, t, c)
+                e_t = self.model.apply_model(x, t, c)
+            else:
+                x_in = torch.cat([x] * 2)
+                t_in = torch.cat([t] * 2)
+                c_in = (
+                    torch.cat(
+                        [unconditional_conditioning[i].expand(*c.shape).to(device), c]
+                    )
+                    if i is not None
+                    else torch.cat([unconditional_conditioning, c])
+                )
+                e_t_uncond, e_t = self.model.apply_model(x_in, t_in, c_in).chunk(2)
+                correction = e_t - e_t_uncond
+                e_t = e_t_uncond + unconditional_guidance_scale * correction
+
+                if style_start > index >= style_end:
+                    x_in_2nd = torch.cat([x_2nd] * 2)
+                    t_in = torch.cat([t] * 2)
+                    c_in = (
+                        torch.cat(
+                            [
+                                unconditional_conditioning[i]
+                                .expand(*c.shape)
+                                .to(device),
+                                c,
+                            ]
+                        )
+                        if i is not None
+                        else torch.cat([unconditional_conditioning, c])
+                    )
+                    e_t_uncond_2nd, e_t_2nd = self.model.apply_model(
+                        x_in_2nd, t_in, c_in
+                    ).chunk(2)
+                    correction_2nd = e_t_2nd - e_t_uncond_2nd
+                    e_t_2nd = (
+                        e_t_uncond_2nd + unconditional_guidance_scale * correction_2nd
+                    )
+
+            if score_corrector is not None:
+                assert self.model.parameterization == "eps"
+                e_t = score_corrector.modify_score(
+                    self.model, e_t, x, t, c, **corrector_kwargs
+                )
+
+            alphas = (
+                self.model.alphas_cumprod if use_original_steps else self.ddim_alphas
+            )
+            alphas_prev = (
+                self.model.alphas_cumprod_prev
+                if use_original_steps
+                else self.ddim_alphas_prev
+            )
+            sqrt_one_minus_alphas = (
+                self.model.sqrt_one_minus_alphas_cumprod
+                if use_original_steps
+                else self.ddim_sqrt_one_minus_alphas
+            )
+            sigmas = (
+                self.model.ddim_sigmas_for_original_num_steps
+                if use_original_steps
+                else self.ddim_sigmas
+            )
+            sigmas = self.ddim_sigmas
+
+            a_t = torch.full((b, 1, 1, 1), alphas[index], device=device)
+            a_prev = torch.full((b, 1, 1, 1), alphas_prev[index], device=device)
+            beta_t = a_t / a_prev
+            sigma_t = torch.full((b, 1, 1, 1), sigmas[index], device=device)
+            sqrt_one_minus_at = torch.full(
+                (b, 1, 1, 1), sqrt_one_minus_alphas[index], device=device
+            )
+
+            # current prediction for x_0
+            pred_x0 = (x - sqrt_one_minus_at * e_t) / a_t.sqrt()
+            c1 = a_prev.sqrt() * (1 - a_t / a_prev) / (1 - a_t)
+            c2 = (a_t / a_prev).sqrt() * (1 - a_prev) / (1 - a_t)
+            c3 = (1 - a_prev) * (1 - a_t / a_prev) / (1 - a_t)
+            c3 = (c3.log() * 0.5).exp()
+            x_prev = c1 * pred_x0 + c2 * x + c3 * torch.randn_like(pred_x0)
+
+            if style_start > index >= style_end:
+                pred_x0_2nd = (x_2nd - sqrt_one_minus_at * e_t_2nd) / a_t.sqrt()
+                x_prev_2nd = (
+                    c1 * pred_x0_2nd + c2 * x_2nd + c3 * torch.randn_like(pred_x0)
+                )
+                # calculate x0|x,c1
+                x_prev_given_c1_2nd = x_prev_2nd.clone()  # .detach()
+
+            if content_start > index >= content_end:
+                # calculate x0|x,c1
+                x_prev_given_c1 = x_prev.clone()  # .detach()
+                if (
+                    unconditional_conditioning is None
+                    or unconditional_guidance_scale == 1.0
+                ):
+                    e_t_given_c1 = self.model.apply_model(x_prev_given_c1, t, c)
+                else:
+                    x_in = torch.cat([x_prev_given_c1] * 2)
+                    t_in = torch.cat([t] * 2)
+                    c_in = (
+                        torch.cat(
+                            [
+                                unconditional_conditioning[i]
+                                .expand(*c.shape)
+                                .to(device),
+                                c,
+                            ]
+                        )
+                        if i is not None
+                        else torch.cat([unconditional_conditioning, c])
+                    )
+                    e_t_uncond, e_t = self.model.apply_model(x_in, t_in, c_in).chunk(2)
+                    # unconditional_guidance_scale = 5.0
+                    correction = e_t - e_t_uncond
+                    e_t_given_c1 = (
+                        e_t_uncond + unconditional_guidance_scale * correction
+                    )
+
+                pred_x0_given_c1 = (
+                    x_prev_given_c1 - sqrt_one_minus_at * e_t_given_c1
+                ) / a_t.sqrt()
+
+                D_x0_t = self.model.decode_first_stage(pred_x0_given_c1)
+                residual = self.vgg_content_filter.get_content_residual(D_x0_t)
+                content_loss = torch.linalg.norm(residual)
+                print("[Debug] Content Loss : ", content_loss.cpu().item(), flush=True)
+                content_loss_grad = torch.autograd.grad(
+                    outputs=content_loss, inputs=x_prev_given_c1
+                )[0]
+                correction_1d = correction.view(-1)
+                correction_1d_l2_norm = torch.norm(correction_1d, p=2)
+                content_loss_grad_1d = content_loss_grad.view(-1)
+                content_loss_grad_1d_norm = torch.norm(content_loss_grad_1d, p=2)
+                rho = correction_1d_l2_norm.item() * unconditional_guidance_scale
+                rho = rho / content_loss_grad_1d_norm.item()
+                gradient_prod = torch.dot(
+                    x_prev.view(-1), rho * content_loss_grad_1d.detach().view(-1)
+                )
+                content_loss_magic_grad = torch.autograd.grad(
+                    outputs=gradient_prod, inputs=x
+                )[0]
+                x_prev = x_prev - content_loss_magic_grad.detach() * content_rho_scale
+
+            if style_start > index >= style_end:
+                if (
+                    unconditional_conditioning is None
+                    or unconditional_guidance_scale == 1.0
+                ):
+                    e_t_given_c1_2nd = self.model.apply_model(x_prev_given_c1_2nd, t, c)
+                else:
+                    x_in = torch.cat([x_prev_given_c1_2nd] * 2)
+                    t_in = torch.cat([t] * 2)
+                    c_in = (
+                        torch.cat(
+                            [
+                                unconditional_conditioning[i]
+                                .expand(*c.shape)
+                                .to(device),
+                                c,
+                            ]
+                        )
+                        if i is not None
+                        else torch.cat([unconditional_conditioning, c])
+                    )
+                    e_t_uncond, e_t = self.model.apply_model(x_in, t_in, c_in).chunk(2)
+                    # unconditional_guidance_scale = 5.0
+                    correction = e_t - e_t_uncond
+                    e_t_given_c1_2nd = (
+                        e_t_uncond + unconditional_guidance_scale * correction
+                    )
+
+                pred_x0_given_c1_2nd = (
+                    x_prev_given_c1_2nd - sqrt_one_minus_at * e_t_given_c1_2nd
+                ) / a_t.sqrt()
+
+                D_x0_t_2nd = self.model.decode_first_stage(pred_x0_given_c1_2nd)
+                if use_clip_style_loss:
+                    residual = self.clip_style_encoder.get_gram_matrix_residual(
+                        D_x0_t_2nd
+                    )
+                    style_loss = torch.linalg.norm(residual)
+                else:
+                    style_loss = self.vgg_style_filter.get_gram_matrix_style_loss(
+                        D_x0_t_2nd
+                    )
+                print("[Debug] Style Loss : ", style_loss.cpu().item(), flush=True)
+                style_loss_grad = torch.autograd.grad(
+                    outputs=style_loss, inputs=x_prev_given_c1_2nd
+                )[0]
+                correction_1d = correction.view(-1)
+                correction_1d_l2_norm = torch.norm(correction_1d, p=2)
+                style_loss_grad_1d = style_loss_grad.view(-1)
+                style_loss_grad_1d_norm = torch.norm(style_loss_grad_1d, p=2)
+                rho = correction_1d_l2_norm.item() * unconditional_guidance_scale
+                rho = rho / style_loss_grad_1d_norm.item()
+                gradient_prod = torch.dot(
+                    x_prev_2nd.view(-1), rho * style_loss_grad_1d.detach().view(-1)
+                )
+                style_loss_magic_grad = torch.autograd.grad(
+                    outputs=gradient_prod, inputs=x_2nd
+                )[0]
+                x_prev = x_prev - style_loss_magic_grad.detach() * style_rho_scale
+
+                if use_cagrad:
+                    grad_0 = content_loss_magic_grad.detach() * content_rho_scale
+                    grad_1 = style_loss_magic_grad.detach() * style_rho_scale
+                    cagrad_grad = cagrad([grad_0, grad_1]) * cagrad_weight
+                    x_prev = x_prev - cagrad_grad + grad_0 + grad_1
+
+            if content_start > index >= content_end or style_start > index >= style_end:
+                if time_reverse_step:
+                    x = beta_t.sqrt() * x_prev + (1 - beta_t).sqrt() * noise_like(
+                        x.shape, device, repeat_noise
+                    )
+            else:
+                x = beta_t.sqrt() * x_prev + (1 - beta_t).sqrt() * noise_like(
+                    x.shape, device, repeat_noise
+                )
+
+        return x_prev.detach(), pred_x0.detach()
+
+    def p_sample_ddim_magic_dual_conditional_second_order(
+        self,
+        x,
+        c,
+        t,
+        index,
+        repeat_noise=False,
+        use_original_steps=False,
+        quantize_denoised=False,
+        temperature=1.0,
+        noise_dropout=0.0,
+        score_corrector=None,
+        corrector_kwargs=None,
+        unconditional_guidance_scale=1.0,
+        unconditional_conditioning=None,
+        i=None,
+        control_detail=dict(),
+    ):
+        b, *_, device = *x.shape, x.device
+
+        x.requires_grad = True
+        self.model.requires_grad_(True)
+
+        # hyperparameters:
+        # "repeat" is the number for time-travel strategy;
+        # "start" and "end" are the end points for the range of guidance;
+        content_start = (
+            control_detail["content_start_steps"]
+            if "content_start_steps" in control_detail
+            else 20
+        )
+        content_end = (
+            control_detail["content_end_steps"]
+            if "content_end_steps" in control_detail
+            else 0
+        )
+        style_start = (
+            control_detail["style_start_steps"]
+            if "style_start_steps" in control_detail
+            else 20
+        )
+        style_end = (
+            control_detail["style_end_steps"]
+            if "style_end_steps" in control_detail
+            else 0
+        )
+        repeat = control_detail["repeat"] if "repeat" in control_detail else 5
+        time_reverse_step = (
+            control_detail["time_reverse_step"]
+            if "time_reverse_step" in control_detail
+            else False
+        )
+        content_rho_scale = (
+            control_detail["content_rho_scale"]
+            if "content_rho_scale" in control_detail
+            else 1.0
+        )
+        style_rho_scale = (
+            control_detail["style_rho_scale"]
+            if "style_rho_scale" in control_detail
+            else 1.0
+        )
+        use_cagrad = (
+            control_detail["use_cagrad"] if "use_cagrad" in control_detail else False
+        )
+        per_channel_cagrad = (
+            control_detail["per_channel_cagrad"] if "per_channel_cagrad" in control_detail else True
         )
         cagrad_weight = (
             control_detail["cagrad_weight"]
@@ -1055,6 +1062,20 @@ class DDIMSampler(object):
                     outputs=gradient_prod, inputs=x, allow_unused=False
                 )[0]
                 x_prev = x_prev - style_loss_magic_grad.detach() * style_rho_scale
+                
+            if use_cagrad and content_start > index >= content_end and style_start > index >= style_end:
+                grad_0 = content_loss_grad.detach() * content_rho_scale
+                grad_1 = style_loss_magic_grad.detach() * style_rho_scale
+                if per_channel_cagrad:
+                    channel_num = grad_0.size(1)
+                    cagrad_grad = []
+                    for k in range(channel_num):
+                        cagrad_grad.append(cagrad([grad_0[:, k, :, :], grad_1[:, k, :, :]]))
+                    cagrad_grad = torch.stack(cagrad_grad, dim=1)
+                else:
+                    cagrad_grad = cagrad([grad_0, grad_1])
+                cagrad_grad = cagrad_grad * cagrad_weight
+                x_prev = x_prev - cagrad_grad + grad_0 + grad_1
 
             if content_start > index >= content_end or style_start > index >= style_end:
                 if time_reverse_step:

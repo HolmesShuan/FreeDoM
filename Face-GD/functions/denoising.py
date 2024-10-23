@@ -408,13 +408,21 @@ def clip_parse_ddim_diffusion_magic(x, seq, model, b, cls_fn=None, rho_scale=Non
             else:
                 x0_t = x0_t.detach()
                 
-            use_mdga = True
-            if use_mdga and not i <= stop:
-                # mdga_grad = mgd([rho * norm_grad.detach(), parse_rho * parse_loss_magic_grad.detach()])
-                ca_grad = cagrad([rho * norm_grad.detach(), parse_rho * parse_loss_magic_grad.detach()])   
-                # xt_next -= mdga_grad + rho * norm_grad.detach() + parse_rho * parse_loss_magic_grad.detach()
-                xt_next -= ca_grad + rho * norm_grad.detach() + parse_rho * parse_loss_magic_grad.detach()
-                
+            use_cagrad = True
+            per_channel_cagrad = True
+            if use_cagrad and not i <= stop:
+                grad_0 = rho * norm_grad.detach()
+                grad_1 = parse_rho * parse_loss_magic_grad.detach()
+                if per_channel_cagrad:
+                    channel_num = grad_0.size(1)
+                    cagrad_grad = []
+                    for k in range(channel_num):
+                        cagrad_grad.append(cagrad([grad_0[:, k, :, :], grad_1[:, k, :, :]]))
+                    cagrad_grad = torch.stack(cagrad_grad, dim=1)
+                else:
+                    cagrad_grad = cagrad([grad_0, grad_1])
+                xt_next -= cagrad_grad + grad_0 + grad_1
+            
             xt_next = xt_next.detach()
             
             x0_preds.append(x0_t.to('cpu'))
@@ -590,7 +598,6 @@ def arcface_ddim_diffusion(x, seq, model, b, cls_fn=None, rho_scale=1.0, stop=10
         norm = torch.linalg.norm(residual)
         norm_grad = torch.autograd.grad(outputs=norm, inputs=xt)[0]
 
-        
         eta = 0.5
         c1 = (1 - at_next).sqrt() * eta
         c2 = (1 - at_next).sqrt() * ((1 - eta ** 2) ** 0.5)
@@ -669,14 +676,13 @@ def arcface_land_ddim_diffusion(x, seq, model, b, cls_fn=None, rho_scale=None, s
         x0_preds.append(x0_t.to('cpu'))
         xs.append(xt_next.to('cpu'))
 
-        if True or not i <= stop:
-            with torch.no_grad():
-                residual = idloss.get_residual(xt_next)
-                norm = torch.linalg.norm(residual)
-                print('[INFO] ID loss : ', norm.cpu().item())
-                landmark_residual = img2landmark.get_residual(xt_next)
-                landmark_norm = torch.linalg.norm(landmark_residual)
-                print('[INFO] landmark loss : ', landmark_norm.cpu().item())
+        with torch.no_grad():
+            residual = idloss.get_residual(xt_next)
+            norm = torch.linalg.norm(residual)
+            print('[INFO] ID loss : ', norm.cpu().item())
+            landmark_residual = img2landmark.get_residual(xt_next)
+            landmark_norm = torch.linalg.norm(landmark_residual)
+            print('[INFO] landmark loss : ', landmark_norm.cpu().item())
 
     return [xs[-1]], [x0_preds[-1]]
 
@@ -756,24 +762,31 @@ def arcface_land_ddim_diffusion_magic(x, seq, model, b, cls_fn=None, rho_scale=N
             x0_t = x0_t.detach()
         xt_next = xt_next.detach()
         
-        use_mdga = True
-        if use_mdga and not i <= stop:
-            # mdga_grad = mgd([rho * norm_grad.detach(), parse_rho * parse_loss_magic_grad.detach()])
-            ca_grad = cagrad([rho * norm_grad.detach(), land_rho * land_loss_magic_grad.detach()])   
-            # xt_next -= mdga_grad + rho * norm_grad.detach() + parse_rho * parse_loss_magic_grad.detach()
-            xt_next -= ca_grad + rho * norm_grad.detach() + land_rho * land_loss_magic_grad.detach()
+        use_cagrad = True
+        per_channel_cagrad = True
+        if use_cagrad and not i <= stop:
+            grad_0 = rho * norm_grad.detach()
+            grad_1 = land_rho * land_loss_magic_grad.detach()
+            if per_channel_cagrad:
+                channel_num = grad_0.size(1)
+                cagrad_grad = []
+                for k in range(channel_num):
+                    cagrad_grad.append(cagrad([grad_0[:, k, :, :], grad_1[:, k, :, :]]))
+                cagrad_grad = torch.stack(cagrad_grad, dim=1)
+            else:
+                cagrad_grad = cagrad([grad_0, grad_1])
+            xt_next -= cagrad_grad + grad_0 + grad_1
         
         x0_preds.append(x0_t.to('cpu'))
         xs.append(xt_next.to('cpu'))
 
-        if True or not i <= stop:
-            with torch.no_grad():
-                residual = idloss.get_residual(xt_next)
-                norm = torch.linalg.norm(residual)
-                print('[INFO] ID loss : ', norm.cpu().item())
-                landmark_residual = img2landmark.get_residual(xt_next)
-                landmark_norm = torch.linalg.norm(landmark_residual)
-                print('[INFO] landmark loss : ', landmark_norm.cpu().item())
+        with torch.no_grad():
+            residual = idloss.get_residual(xt_next)
+            norm = torch.linalg.norm(residual)
+            print('[INFO] ID loss : ', norm.cpu().item())
+            landmark_residual = img2landmark.get_residual(xt_next)
+            landmark_norm = torch.linalg.norm(landmark_residual)
+            print('[INFO] landmark loss : ', landmark_norm.cpu().item())
 
     return [xs[-1]], [x0_preds[-1]]
 
@@ -858,17 +871,16 @@ def clip_parse_id_ddim_diffusion(x, seq, model, b, cls_fn=None, rho_scale=None, 
                 bt = at / at_next
                 xt = bt.sqrt() * xt_next + (1 - bt).sqrt() * torch.randn_like(xt_next)
         
-        if True or not i <= stop:
-            with torch.no_grad():
-                residual = clip_encoder.get_residual(xt_next, prompt)
-                norm = torch.linalg.norm(residual)
-                print('[INFO] text loss : ', norm.cpu().item())
-                parse_residual = parser.get_residual(xt_next)
-                parse_norm = torch.linalg.norm(parse_residual)
-                print('[INFO] seg loss : ', parse_norm.cpu().item())
-                residual = idloss.get_residual(xt_next)
-                norm = torch.linalg.norm(residual)
-                print('[INFO] ID loss : ', norm.cpu().item())
+        with torch.no_grad():
+            residual = clip_encoder.get_residual(xt_next, prompt)
+            norm = torch.linalg.norm(residual)
+            print('[INFO] text loss : ', norm.cpu().item())
+            parse_residual = parser.get_residual(xt_next)
+            parse_norm = torch.linalg.norm(parse_residual)
+            print('[INFO] seg loss : ', parse_norm.cpu().item())
+            residual = idloss.get_residual(xt_next)
+            norm = torch.linalg.norm(residual)
+            print('[INFO] ID loss : ', norm.cpu().item())
 
     # return x0_preds, xs
     return [xs[-1]], [x0_preds[-1]]
@@ -975,12 +987,21 @@ def clip_parse_id_ddim_diffusion_magic(x, seq, model, b, cls_fn=None, rho_scale=
             else:
                 x0_t = x0_t.detach()
                 
-            use_mdga = True
-            if use_mdga and not i <= stop:
-                # mdga_grad = mgd([rho * norm_grad.detach(), parse_rho * parse_loss_magic_grad.detach()])
-                ca_grad = cagrad_third_order([rho * norm_grad.detach(), parse_rho * parse_loss_magic_grad.detach(), id_rho * id_loss_magic_grad.detach()])   
-                # xt_next -= mdga_grad + rho * norm_grad.detach() + parse_rho * parse_loss_magic_grad.detach()
-                xt_next -= ca_grad + rho * norm_grad.detach() + parse_rho * parse_loss_magic_grad.detach() + id_rho * id_loss_magic_grad.detach()
+            use_cagrad = True
+            per_channel_cagrad = True
+            if use_cagrad and not i <= stop:
+                grad_0 = rho * norm_grad.detach()
+                grad_1 = parse_rho * parse_loss_magic_grad.detach()
+                grad_2 = id_rho * id_loss_magic_grad.detach()
+                if per_channel_cagrad:
+                    channel_num = grad_0.size(1)
+                    cagrad_grad = []
+                    for k in range(channel_num):
+                        cagrad_grad.append(cagrad_third_order([grad_0[:, k, :, :], grad_1[:, k, :, :], grad_2[:, k, :, :]]))
+                    cagrad_grad = torch.stack(cagrad_grad, dim=1)
+                else:
+                    cagrad_grad = cagrad_third_order([grad_0, grad_1, grad_2])
+                xt_next -= cagrad_grad + grad_0 + grad_1 + grad_2
                 
             xt_next = xt_next.detach()
             
@@ -991,17 +1012,16 @@ def clip_parse_id_ddim_diffusion_magic(x, seq, model, b, cls_fn=None, rho_scale=
                 bt = at / at_next
                 xt = bt.sqrt() * xt_next + (1 - bt).sqrt() * torch.randn_like(xt_next)
         
-        if True or not i <= stop:
-            with torch.no_grad():
-                residual = clip_encoder.get_residual(xt_next, prompt)
-                norm = torch.linalg.norm(residual)
-                print('[INFO] text loss : ', norm.cpu().item())
-                parse_residual = parser.get_residual(xt_next)
-                parse_norm = torch.linalg.norm(parse_residual)
-                print('[INFO] seg loss : ', parse_norm.cpu().item())
-                id_residual = idloss.get_residual(xt_next)
-                id_norm = torch.linalg.norm(id_residual)
-                print('[INFO] ID loss : ', id_norm.cpu().item())
+        with torch.no_grad():
+            residual = clip_encoder.get_residual(xt_next, prompt)
+            norm = torch.linalg.norm(residual)
+            print('[INFO] text loss : ', norm.cpu().item())
+            parse_residual = parser.get_residual(xt_next)
+            parse_norm = torch.linalg.norm(parse_residual)
+            print('[INFO] seg loss : ', parse_norm.cpu().item())
+            id_residual = idloss.get_residual(xt_next)
+            id_norm = torch.linalg.norm(id_residual)
+            print('[INFO] ID loss : ', id_norm.cpu().item())
 
     # return x0_preds, xs
     return [xs[-1]], [x0_preds[-1]]

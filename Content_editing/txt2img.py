@@ -169,6 +169,11 @@ def main():
         help="use dpm_solver sampling",
     )
     parser.add_argument(
+        "--use_second_order_alg",
+        action="store_true",
+        help="use second order magic algorithm",
+    )
+    parser.add_argument(
         "--laion400m",
         action="store_true",
         help="uses the LAION400M model",
@@ -418,7 +423,7 @@ def main():
 
                         np_array = np.load(opt.content_ref_mask_path)
                         mask = torch.from_numpy(np_array).cuda().unsqueeze(0).unsqueeze(0)
-                        mask = F.interpolate(mask, size=(64, 64), mode="nearest")
+                        mask = F.interpolate(mask, size=(opt.H // opt.f, opt.W // opt.f), mode="nearest")
                     else:
                         uncond_embeddings = uc
                         content_latent_list = None
@@ -450,7 +455,8 @@ def main():
                             "time_reverse_step": opt.time_reverse_step,
                             "use_cagrad": opt.use_cagrad,
                             "cagrad_weight": opt.cagrad_weight,
-                            "use_clip_style_loss": opt.use_clip_style_loss
+                            "use_clip_style_loss": opt.use_clip_style_loss,
+                            "use_second_order_alg": opt.use_second_order_alg
                         },
                     )
 

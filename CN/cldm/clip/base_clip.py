@@ -315,8 +315,8 @@ class VGG16Encoder(nn.Module):
             self.gram_style = [gram_matrix(y) for y in features_style]
     
     def get_gram_matrix_style_loss(self, im1):
-        # im1 = torch.nn.functional.interpolate(im1, size=(self.image_size, self.image_size), mode='bicubic')
-        im1 = torch.nn.functional.interpolate(im1, size=(512, 512), mode='bicubic')
+        im1 = torch.nn.functional.interpolate(im1, size=(self.image_size, self.image_size), mode='bicubic')
+        # im1 = torch.nn.functional.interpolate(im1, size=(512, 512), mode='bicubic')
         x = self.preprocess(im1)
         features_x = self.clip_model(x)
         
